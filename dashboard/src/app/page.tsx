@@ -1,288 +1,55 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { DashboardSummary } from '@/lib/redis-storage';
+import { useState } from 'react';
+import DashboardLayout from '@/components/DashboardLayout';
+import DashboardOverview from '@/components/DashboardOverview';
+import LiveTracking from '@/components/LiveTracking';
+import Link from 'next/link';
 
 export default function Dashboard() {
-  const [dashboardData, setDashboardData] = useState<DashboardSummary | null>(null);
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [activeTab, setActiveTab] = useState('overview');
 
-  useEffect(() => {
-    // Try WebSocket connection first
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:8080`;
-    const websocket = new WebSocket(wsUrl);
-
-    websocket.onopen = () => {
-      console.log('🔌 WebSocket connected');
-      setConnectionStatus('connected');
-    };
-
-    websocket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'initial_data' || data.type === 'dashboard_update') {
-          setDashboardData(data.data);
-        }
-      } catch (error) {
-        console.error('Error parsing WebSocket message:', error);
-      }
-    };
-
-    websocket.onclose = () => {
-      console.log('🔌 WebSocket disconnected');
-      setConnectionStatus('disconnected');
-      // Fallback to API polling
-      fetchDashboardData();
-    };
-
-    websocket.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setConnectionStatus('disconnected');
-      // Fallback to API polling
-      fetchDashboardData();
-    };
-
-    setWs(websocket);
-
-    // Fallback: fetch data via API
-    const fetchDashboardData = async () => {
-      try {
-        console.log('📡 Fetching dashboard data via API...');
-        const response = await fetch('/api/test-dashboard');
-        const result = await response.json();
-        
-        if (result.success) {
-          setDashboardData(result.data);
-          setConnectionStatus('connected');
-          console.log('✅ Dashboard data loaded via API');
-        } else {
-          console.error('❌ Failed to load dashboard data:', result.error);
-        }
-      } catch (error) {
-        console.error('❌ API fetch failed:', error);
-        setConnectionStatus('disconnected');
-      }
-    };
-
-    // Initial API fetch as fallback
-    fetchDashboardData();
-
-    // Set up polling interval for automatic updates (5 seconds)
-    const pollingInterval = setInterval(() => {
-      if (connectionStatus === 'disconnected' || !ws || ws.readyState !== WebSocket.OPEN) {
-        console.log('🔄 Polling for dashboard updates...');
-        fetchDashboardData();
-      }
-    }, 5000);
-
-    return () => {
-      websocket.close();
-      clearInterval(pollingInterval);
-    };
-  }, []);
-
-  const getConnectionStatusColor = () => {
-    switch (connectionStatus) {
-      case 'connected': return 'text-green-500';
-      case 'connecting': return 'text-yellow-500';
-      case 'disconnected': return 'text-red-500';
-      default: return 'text-gray-500';
-    }
-  };
-
-  const getConnectionStatusText = () => {
-    switch (connectionStatus) {
-      case 'connected': return 'Connected';
-      case 'connecting': return 'Connecting...';
-      case 'disconnected': return 'Disconnected';
-      default: return 'Unknown';
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'overview':
+        return <DashboardOverview />;
+      case 'tracking':
+        return <LiveTracking />;
+      case 'analytics':
+        return (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Analytics</h2>
+            <p className="text-gray-600">Analytics features coming soon...</p>
+          </div>
+        );
+      case 'classification':
+        return (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Vehicle Classification</h2>
+            <p className="text-gray-600 mb-4">Advanced vehicle classification and counting analytics</p>
+            <Link 
+              href="/classification"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Open Classification Dashboard
+            </Link>
+          </div>
+        );
+      case 'settings':
+        return (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Settings</h2>
+            <p className="text-gray-600">Settings panel coming soon...</p>
+          </div>
+        );
+      default:
+        return <DashboardOverview />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Traffic Signal Control Dashboard</h1>
-              <p className="text-sm text-gray-600">Real-time radar data monitoring and signal optimization</p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className={`flex items-center space-x-2 ${getConnectionStatusColor()}`}>
-                <div className="w-2 h-2 bg-current rounded-full"></div>
-                <span className="text-sm font-medium">{getConnectionStatusText()}</span>
-              </div>
-              <div className="text-sm text-gray-500">
-                {dashboardData?.timestamp ? new Date(dashboardData.timestamp).toLocaleTimeString() : '--:--:--'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {dashboardData ? (
-          <div className="space-y-8">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-sm font-bold">V</span>
-                    </div>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-500">Total Vehicles</p>
-                    <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.totalVehicles}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-sm font-bold">S</span>
-                    </div>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-500">Average Speed</p>
-                    <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.averageSpeed.toFixed(1)} km/h</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-sm font-bold">Q</span>
-                    </div>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-500">Lanes with Queues</p>
-                    <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.lanesWithQueues}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-sm font-bold">O</span>
-                    </div>
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-500">Occupancy Rate</p>
-                    <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.averageOccupancyRate.toFixed(1)}%</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Lane Status */}
-            {dashboardData.laneStatus && (
-              <div className="bg-white rounded-lg shadow">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900">Lane Status</h3>
-                </div>
-                <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {dashboardData.laneStatus.entries.map((entry, index) => (
-                      <div key={index} className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-gray-900">Lane {entry.lane?.number || 'Unknown'}</h4>
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            entry.queue?.length > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
-                          }`}>
-                            {entry.queue?.length > 0 ? 'Queued' : 'Free Flow'}
-                          </span>
-                        </div>
-                        <div className="space-y-1 text-sm text-gray-600">
-                          <div>Queue: {entry.queue?.length?.toFixed(1) || '0.0'}m</div>
-                          <div>Vehicles: {entry.vehiclesOnline || 0}</div>
-                          <div>Speed: {entry.speeds?.average?.toFixed(1) || '0.0'} km/h</div>
-                          <div>Occupancy: {entry.spaceOccupancyRate?.toFixed(1) || '0.0'}%</div>
-                        </div>
-                        {entry.alerts && entry.alerts.length > 0 && (
-                          <div className="mt-2">
-                            {entry.alerts.map((alert, alertIndex) => (
-                              <div key={alertIndex} className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
-                                {alert}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Recent Pass Events */}
-            {dashboardData.recentPassEvents.length > 0 && (
-              <div className="bg-white rounded-lg shadow">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h3 className="text-lg font-medium text-gray-900">Recent Pass Events</h3>
-                </div>
-                <div className="p-6">
-                  <div className="space-y-2">
-                    {dashboardData.recentPassEvents.slice(0, 5).map((event, index) => (
-                      <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                          <span className="text-sm font-medium">Lane {event.laneNumber || 'Unknown'}</span>
-                          <span className="text-sm text-gray-500">{event.vehicleType || 'Unknown'}</span>
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {event.crossSectionSpeed?.toFixed(1) || '0.0'} km/h
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Alerts */}
-            {dashboardData.summary.alerts.length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="flex items-center">
-                  <div className="flex-shrink-0">
-                    <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs font-bold">!</span>
-                    </div>
-                  </div>
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">Traffic Alerts</h3>
-                    <div className="mt-1 text-sm text-red-700">
-                      {dashboardData.summary.alerts.map((alert, index) => (
-                        <div key={index}>• {alert}</div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="flex items-center justify-center h-64">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-              <p className="mt-4 text-gray-500">Loading dashboard data...</p>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
+    <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      {renderTabContent()}
+    </DashboardLayout>
   );
 }

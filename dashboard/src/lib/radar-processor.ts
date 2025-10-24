@@ -1,13 +1,19 @@
 import { ObjectData, LaneStatus, PassData, TrafficData, RegionData, VehicleEntry, LaneEntry } from '@/types/radar';
+import { ClassificationProcessor } from './classification-processor';
 
 export class RadarDataProcessor {
   private static instance: RadarDataProcessor;
+  private classificationProcessor: ClassificationProcessor;
   
   public static getInstance(): RadarDataProcessor {
     if (!RadarDataProcessor.instance) {
       RadarDataProcessor.instance = new RadarDataProcessor();
     }
     return RadarDataProcessor.instance;
+  }
+
+  private constructor() {
+    this.classificationProcessor = ClassificationProcessor.getInstance();
   }
 
   /**
@@ -46,7 +52,7 @@ export class RadarDataProcessor {
    * Process Pass Data (0x05) - Vehicle crossing events
    */
   public processPassData(data: PassData): ProcessedPassData {
-    return {
+    const processedData = {
       deviceId: data.deviceId,
       timestamp: new Date(data.passingTime),
       laneNumber: data.laneNumber,
@@ -57,6 +63,11 @@ export class RadarDataProcessor {
       occupancyStatus: data.occupancyStatus === 1 ? 'entering' : 'exiting',
       vehicleType: this.getVehicleTypeName(data.vehicleType)
     };
+
+    // Process for classification analytics
+    this.classificationProcessor.processPassDataForClassification(processedData);
+
+    return processedData;
   }
 
   /**

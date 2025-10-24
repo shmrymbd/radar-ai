@@ -8,10 +8,12 @@
     "start": "next start",
     "lint": "eslint",
     "websocket": "node websocket-server.js",
-    "dev:full": "concurrently \"npm run dev\" \"npm run websocket\""
+    "tracking": "npx ts-node src/lib/tracking-websocket-server.ts",
+    "dev:full": "concurrently \"npm run dev\" \"npm run websocket\" \"npm run tracking\""
   },
   "dependencies": {
     "@types/ws": "^8.18.1",
+    "autoprefixer": "^10.4.21",
     "mongodb": "^6.20.0",
     "next": "16.0.0",
     "react": "19.2.0",
