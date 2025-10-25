@@ -95,13 +95,13 @@ export const SPEED_COLORS = {
 
 // Canvas configuration
 export const CANVAS_CONFIG = {
-  width: 1200,
-  height: 600,
-  scale: 2, // 1 pixel = 0.5m
+  width: 1400,
+  height: 900,
+  scale: 3, // 1 pixel = 0.33m (higher resolution)
   updateRate: 10, // 10Hz
   maxTrailLength: 50,
-  vehicleMinSize: 4, // Minimum vehicle size in pixels
-  vehicleMaxSize: 40 // Maximum vehicle size in pixels
+  vehicleMinSize: 8, // Minimum vehicle size in pixels
+  vehicleMaxSize: 60 // Maximum vehicle size in pixels
 } as const;
 
 // Lane configuration for visualization

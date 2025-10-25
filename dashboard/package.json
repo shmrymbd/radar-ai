@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "websocket": "node websocket-server.js",
+    "websocket": "node websocket-server-fixed.js",
     "tracking": "npx ts-node src/lib/tracking-websocket-server.ts",
     "dev:full": "concurrently \"npm run dev\" \"npm run websocket\" \"npm run tracking\""
   },
@@ -16,6 +16,7 @@
     "autoprefixer": "^10.4.21",
     "mongodb": "^6.20.0",
     "next": "16.0.0",
+    "node-fetch": "^3.3.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "redis": "^5.9.0",

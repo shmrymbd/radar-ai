@@ -46,7 +46,7 @@ export class DebugAgent {
     // Set up periodic health checks
     this.intervalId = setInterval(() => {
       this.runHealthCheck();
-    }, 30000); // Every 30 seconds
+    }, 10000); // Every 10 seconds - more reasonable for debug monitoring
   }
 
   /**

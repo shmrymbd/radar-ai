@@ -182,7 +182,7 @@ export class ClassificationWebSocketServer {
     // Update every 5 seconds
     this.updateInterval = setInterval(() => {
       this.broadcastClassificationUpdate();
-    }, 5000);
+    }, 3000); // 3 seconds - more reasonable for classification updates
   }
 
   /**

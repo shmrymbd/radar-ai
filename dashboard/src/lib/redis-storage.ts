@@ -1,5 +1,6 @@
 import { getRedisClient } from './redis';
 import { ProcessedObjectData, ProcessedLaneStatus, ProcessedPassData, ProcessedTrafficData, ProcessedRegionData } from './radar-processor';
+import { ObjectData } from '@/types/radar';
 
 export class RedisStorage {
   private static instance: RedisStorage;
@@ -17,11 +18,33 @@ export class RedisStorage {
   }
 
   /**
+   * Set the device prefix for Redis keys
+   */
+  public setDevicePrefix(deviceId: string): void {
+    this.keyPrefix = deviceId;
+  }
+
+  /**
+   * Get the current device prefix
+   */
+  public getDevicePrefix(): string {
+    return this.keyPrefix;
+  }
+
+  /**
+   * Get device-specific Redis key
+   */
+  private getDeviceKey(dataType: string): string {
+    return `${this.keyPrefix}/${dataType}`;
+  }
+
+  /**
    * Store Object Data (0x01) in Redis
    */
   public async storeObjectData(data: ProcessedObjectData): Promise<void> {
     try {
-      const key = `${this.keyPrefix}/objectdata`;
+      const redisClient = await getRedisClient();
+      const key = this.getDeviceKey('objectdata');
       const value = JSON.stringify(data);
       
       // Store with TTL of 1 hour (3600 seconds)
@@ -39,19 +62,43 @@ export class RedisStorage {
   }
 
   /**
+   * Store raw ObjectData directly
+   */
+  public async storeRawObjectData(data: ObjectData): Promise<void> {
+    try {
+      const redisClient = await getRedisClient();
+      const key = this.getDeviceKey('objectdata');
+      const value = JSON.stringify(data);
+      
+      // Store with TTL of 1 hour (3600 seconds)
+      await redisClient.lpush(key, value);
+      await redisClient.expire(key, 3600);
+      
+      // Keep only the latest 100 entries
+      await redisClient.ltrim(key, 0, 99);
+      
+      console.log(`Stored raw Object Data: ${data.numEntries} vehicles`);
+    } catch (error) {
+      console.error('Error storing raw Object Data:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Store Lane Status (0x04) in Redis
    */
   public async storeLaneStatus(data: ProcessedLaneStatus): Promise<void> {
     try {
-      const key = `${this.keyPrefix}/lanestatus`;
+      const client = await getRedisClient();
+      const key = this.getDeviceKey('lanestatus');
       const value = JSON.stringify(data);
       
       // Store with TTL of 1 hour
-      await redisClient.lpush(key, value);
-      await redisClient.expire(key, 3600);
+      await client.lpush(key, value);
+      await client.expire(key, 3600);
       
       // Keep only last 1000 entries
-      await redisClient.ltrim(key, 0, 999);
+      await client.ltrim(key, 0, 999);
       
       console.log(`Stored Lane Status: ${data.numEntries} lanes`);
     } catch (error) {
@@ -65,15 +112,16 @@ export class RedisStorage {
    */
   public async storePassData(data: ProcessedPassData): Promise<void> {
     try {
-      const key = `${this.keyPrefix}/passdata`;
+      const key = this.getDeviceKey('passdata');
       const value = JSON.stringify(data);
       
       // Store with TTL of 2 hours (7200 seconds) - events are less frequent
-      await redisClient.lpush(key, value);
-      await redisClient.expire(key, 7200);
+      const client = await getRedisClient();
+      await client.lpush(key, value);
+      await client.expire(key, 7200);
       
       // Keep only last 500 entries
-      await redisClient.ltrim(key, 0, 499);
+      await client.ltrim(key, 0, 499);
       
       console.log(`Stored Pass Data: Lane ${data.laneNumber}`);
     } catch (error) {
@@ -87,15 +135,16 @@ export class RedisStorage {
    */
   public async storeTrafficData(data: ProcessedTrafficData): Promise<void> {
     try {
-      const key = `${this.keyPrefix}/trafficdata`;
+      const key = this.getDeviceKey('trafficdata');
       const value = JSON.stringify(data);
       
       // Store with TTL of 24 hours (86400 seconds) - statistical data
-      await redisClient.lpush(key, value);
-      await redisClient.expire(key, 86400);
+      const client = await getRedisClient();
+      await client.lpush(key, value);
+      await client.expire(key, 86400);
       
       // Keep only last 100 entries
-      await redisClient.ltrim(key, 0, 99);
+      await client.ltrim(key, 0, 99);
       
       console.log(`Stored Traffic Data: Lane ${data.targetLane}`);
     } catch (error) {
@@ -109,15 +158,16 @@ export class RedisStorage {
    */
   public async storeRegionData(data: ProcessedRegionData): Promise<void> {
     try {
-      const key = `${this.keyPrefix}/regiondata`;
+      const key = this.getDeviceKey('regiondata');
       const value = JSON.stringify(data);
       
       // Store with TTL of 24 hours
-      await redisClient.lpush(key, value);
-      await redisClient.expire(key, 86400);
+      const client = await getRedisClient();
+      await client.lpush(key, value);
+      await client.expire(key, 86400);
       
       // Keep only last 100 entries
-      await redisClient.ltrim(key, 0, 99);
+      await client.ltrim(key, 0, 99);
       
       console.log(`Stored Region Data: Direction ${data.direction}`);
     } catch (error) {
@@ -131,11 +181,11 @@ export class RedisStorage {
    */
   public async getLatestObjectData(limit: number = 10): Promise<ProcessedObjectData[]> {
     try {
-      const redisClient = await getRedisClient();
+      const client = await getRedisClient();
       const key = `${this.keyPrefix}/objectdata`;
       // Get the latest entries from the end of the list
-      const data = await redisClient.lRange(key, -limit, -1);
-      return data.map(item => JSON.parse(item));
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
     } catch (error) {
       console.error('Error getting Object Data:', error);
       return [];
@@ -147,11 +197,11 @@ export class RedisStorage {
    */
   public async getLatestLaneStatus(limit: number = 10): Promise<ProcessedLaneStatus[]> {
     try {
-      const redisClient = await getRedisClient();
+      const client = await getRedisClient();
       const key = `${this.keyPrefix}/lanestatus`;
       // Get the latest entries from the end of the list
-      const data = await redisClient.lRange(key, -limit, -1);
-      return data.map(item => JSON.parse(item));
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
     } catch (error) {
       console.error('Error getting Lane Status:', error);
       return [];
@@ -163,10 +213,10 @@ export class RedisStorage {
    */
   public async getLatestPassData(limit: number = 10): Promise<ProcessedPassData[]> {
     try {
-      const redisClient = await getRedisClient();
+      const client = await getRedisClient();
       const key = `${this.keyPrefix}/passdata`;
       // Get the latest entries from the end of the list
-      const data = await redisClient.lRange(key, -limit, -1);
+      const data = await client.lRange(key, -limit, -1);
       
       // Process the raw radar data into the expected format
       const processedData: ProcessedPassData[] = [];
@@ -204,11 +254,11 @@ export class RedisStorage {
    */
   public async getLatestTrafficData(limit: number = 10): Promise<ProcessedTrafficData[]> {
     try {
-      const redisClient = await getRedisClient();
+      const client = await getRedisClient();
       const key = `${this.keyPrefix}/trafficdata`;
       // Get the latest entries from the end of the list
-      const data = await redisClient.lRange(key, -limit, -1);
-      return data.map(item => JSON.parse(item));
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
     } catch (error) {
       console.error('Error getting Traffic Data:', error);
       return [];
@@ -220,11 +270,11 @@ export class RedisStorage {
    */
   public async getLatestRegionData(limit: number = 10): Promise<ProcessedRegionData[]> {
     try {
-      const redisClient = await getRedisClient();
+      const client = await getRedisClient();
       const key = `${this.keyPrefix}/regiondata`;
       // Get the latest entries from the end of the list
-      const data = await redisClient.lRange(key, -limit, -1);
-      return data.map(item => JSON.parse(item));
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
     } catch (error) {
       console.error('Error getting Region Data:', error);
       return [];
@@ -310,7 +360,7 @@ export class RedisStorage {
 
     // Process Traffic Data
     if (trafficData) {
-      totalFlowRate = trafficData.vehicleFlowRate || 0;
+      totalFlowRate = trafficData.vehicleFlows?.totalFlow || 0;
       trafficDensity = trafficData.trafficDensity || 0;
     }
 
@@ -327,19 +377,132 @@ export class RedisStorage {
   }
 
   /**
+   * Get device-specific object data
+   */
+  public async getDeviceObjectData(deviceId: string, limit: number = 1): Promise<ProcessedObjectData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/objectdata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      console.error(`Error getting object data for device ${deviceId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific lane status data
+   */
+  public async getDeviceLaneStatus(deviceId: string, limit: number = 1): Promise<ProcessedLaneStatus[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/lanestatus`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      console.error(`Error getting lane status for device ${deviceId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific pass data
+   */
+  public async getDevicePassData(deviceId: string, limit: number = 5): Promise<ProcessedPassData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/passdata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      console.error(`Error getting pass data for device ${deviceId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific traffic data
+   */
+  public async getDeviceTrafficData(deviceId: string, limit: number = 1): Promise<ProcessedTrafficData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/trafficdata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      console.error(`Error getting traffic data for device ${deviceId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific region data
+   */
+  public async getDeviceRegionData(deviceId: string, limit: number = 1): Promise<ProcessedRegionData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/regiondata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      console.error(`Error getting region data for device ${deviceId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Get dashboard summary for specific device
+   */
+  public async getDeviceDashboardSummary(deviceId: string): Promise<DashboardSummary> {
+    try {
+      const [objectData, laneStatus, passData, trafficData, regionData] = await Promise.all([
+        this.getDeviceObjectData(deviceId, 1),
+        this.getDeviceLaneStatus(deviceId, 1),
+        this.getDevicePassData(deviceId, 5),
+        this.getDeviceTrafficData(deviceId, 1),
+        this.getDeviceRegionData(deviceId, 1)
+      ]);
+
+      return {
+        timestamp: new Date(),
+        objectData: objectData[0] || null,
+        laneStatus: laneStatus[0] || null,
+        recentPassEvents: passData,
+        trafficData: trafficData[0] || null,
+        regionData: regionData[0] || null,
+        summary: {
+          totalVehicles: objectData[0]?.numEntries || 0,
+          averageSpeed: laneStatus[0]?.entries?.reduce((sum, entry) => sum + (entry.speeds?.average || 0), 0) / (laneStatus[0]?.entries?.length || 1) || 0,
+          lanesWithQueues: laneStatus[0]?.entries?.filter(entry => entry.queue?.length > 0).length || 0,
+          totalVehiclesOnline: laneStatus[0]?.entries?.reduce((sum, entry) => sum + (entry.vehiclesOnline || 0), 0) || 0,
+          averageOccupancyRate: laneStatus[0]?.entries?.reduce((sum, entry) => sum + (entry.spaceOccupancyRate || 0), 0) / (laneStatus[0]?.entries?.length || 1) || 0,
+          totalFlowRate: trafficData[0]?.totalFlow || 0,
+          trafficDensity: trafficData[0]?.trafficDensity || 0,
+          alerts: []
+        }
+      };
+    } catch (error) {
+      console.error(`Error getting dashboard summary for device ${deviceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Clear all radar data from Redis
    */
   public async clearAllData(): Promise<void> {
     try {
       const keys = [
-        `${this.keyPrefix}/objectdata`,
-        `${this.keyPrefix}/lanestatus`,
-        `${this.keyPrefix}/passdata`,
-        `${this.keyPrefix}/trafficdata`,
-        `${this.keyPrefix}/regiondata`
+        this.getDeviceKey('objectdata'),
+        this.getDeviceKey('lanestatus'),
+        this.getDeviceKey('passdata'),
+        this.getDeviceKey('trafficdata'),
+        this.getDeviceKey('regiondata')
       ];
 
-      await Promise.all(keys.map(key => redisClient.del(key)));
+      const client = await getRedisClient();
+      await Promise.all(keys.map(key => client.del(key)));
       console.log('Cleared all radar data from Redis');
     } catch (error) {
       console.error('Error clearing data:', error);
@@ -352,7 +515,8 @@ export class RedisStorage {
    */
   public async getConnectionStatus(): Promise<boolean> {
     try {
-      await redisClient.ping();
+      const client = await getRedisClient();
+      await client.ping();
       return true;
     } catch (error) {
       console.error('Redis connection error:', error);

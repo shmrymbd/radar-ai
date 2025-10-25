@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, ReactNode } from 'react';
+import DeviceSelector from './DeviceSelector';
+import ClientOnlyTimeDisplay from './ClientOnlyTimeDisplay';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -28,13 +30,12 @@ export default function DashboardLayout({ children, activeTab, onTabChange }: Da
               <p className="text-sm text-gray-600">Real-time radar data monitoring and signal optimization</p>
             </div>
             <div className="flex items-center space-x-4">
+              <DeviceSelector />
               <div className="flex items-center space-x-2 text-green-500">
                 <div className="w-2 h-2 bg-current rounded-full"></div>
                 <span className="text-sm font-medium">System Online</span>
               </div>
-              <div className="text-sm text-gray-500">
-                {new Date().toLocaleTimeString()}
-              </div>
+              <ClientOnlyTimeDisplay />
             </div>
           </div>
         </div>

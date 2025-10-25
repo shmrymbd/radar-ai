@@ -156,3 +156,16 @@ export const LANE_CONFIG = {
 } as const;
 
 export type LaneNumber = keyof typeof LANE_CONFIG;
+
+// Processed Data Types
+export interface ProcessedPassData {
+  deviceId: string;
+  timestamp: Date;
+  laneNumber: number;
+  crossSectionPosition: number;
+  crossSectionSpeed: number;
+  headwayTime: number;
+  occupancyDuration: number;
+  occupancyStatus: string;
+  vehicleType: string;
+}

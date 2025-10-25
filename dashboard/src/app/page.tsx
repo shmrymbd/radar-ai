@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { DeviceProvider } from '@/contexts/DeviceContext';
 import DashboardLayout from '@/components/DashboardLayout';
 import DashboardOverview from '@/components/DashboardOverview';
 import LiveTracking from '@/components/LiveTracking';
@@ -48,8 +49,10 @@ export default function Dashboard() {
   };
 
   return (
-    <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
-      {renderTabContent()}
-    </DashboardLayout>
+    <DeviceProvider>
+      <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
+        {renderTabContent()}
+      </DashboardLayout>
+    </DeviceProvider>
   );
 }

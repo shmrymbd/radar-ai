@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useDevice } from '@/contexts/DeviceContext';
 import { VehiclePosition, VehicleState, VehicleRenderOptions, VEHICLE_COLORS, CANVAS_CONFIG, DETECTION_ZONE, LANE_BOUNDARIES } from '@/types/tracking';
 
 interface LiveTrackingProps {
@@ -8,6 +9,7 @@ interface LiveTrackingProps {
 }
 
 export default function LiveTracking({ className = '' }: LiveTrackingProps) {
+  const { selectedDevice } = useDevice();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [vehicles, setVehicles] = useState<VehicleState[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleState | null>(null);
@@ -19,28 +21,50 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     panX: 0,
     panY: 0
   });
+  const [selectedScenario, setSelectedScenario] = useState<number>(0);
+  const [showCoordinateSystem, setShowCoordinateSystem] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  
+  // Heat map state for trail-based road visualization
+  const [globalTrailHistory, setGlobalTrailHistory] = useState<Map<string, number>>(new Map());
+  const heatMapCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [heatMapInitialized, setHeatMapInitialized] = useState(false);
+
+  // Helper function to convert radar coordinates to grid cells
+  const getGridKey = useCallback((x: number, y: number, gridSize: number = 2): string => {
+    const gridX = Math.floor(x / gridSize) * gridSize;
+    const gridY = Math.floor(y / gridSize) * gridSize;
+    return `${gridX}_${gridY}`;
+  }, []);
 
   // Coordinate transformation functions
   const radarToVisual = useCallback((radarX: number, radarY: number) => {
-    const scale = CANVAS_CONFIG.scale;
+    const baseScale = CANVAS_CONFIG.scale;
+    const canvasWidth = CANVAS_CONFIG.width;
     const canvasHeight = CANVAS_CONFIG.height;
     
+    // Apply zoom and pan transformations
+    const scale = baseScale * renderOptions.zoomLevel;
+    const centerX = (canvasWidth / 2) + renderOptions.panX;
+    const centerY = (canvasHeight / 2) + renderOptions.panY;
+    
+    // Transform coordinates with road centered, zoom, and pan applied
     return {
-      x: (radarX + 15) * scale,
-      y: canvasHeight - (radarY * scale)
+      x: centerX + (radarX * scale),
+      y: centerY - (radarY * scale) // Invert Y so positive Y goes up
     };
-  }, []);
+  }, [renderOptions.zoomLevel, renderOptions.panX, renderOptions.panY]);
 
   const calculateVehicleSize = useCallback((vehicle: VehiclePosition) => {
-    const baseWidth = Math.max(vehicle.width * CANVAS_CONFIG.scale, CANVAS_CONFIG.vehicleMinSize);
-    const baseHeight = Math.max(vehicle.length * CANVAS_CONFIG.scale, CANVAS_CONFIG.vehicleMinSize);
+    const scale = CANVAS_CONFIG.scale * renderOptions.zoomLevel;
+    const baseWidth = Math.max(vehicle.width * scale, CANVAS_CONFIG.vehicleMinSize);
+    const baseHeight = Math.max(vehicle.length * scale, CANVAS_CONFIG.vehicleMinSize);
     
     return {
       width: Math.min(baseWidth, CANVAS_CONFIG.vehicleMaxSize),
       height: Math.min(baseHeight, CANVAS_CONFIG.vehicleMaxSize)
     };
-  }, []);
+  }, [renderOptions.zoomLevel]);
 
   const getSpeedIntensity = useCallback((speed: number): number => {
     if (speed < 20) return 0.6;
@@ -57,52 +81,494 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     } : null;
   }, []);
 
+  // Analyze radar data to create lane scenarios based on actual radar lane assignments
+  const analyzeRadarData = useCallback(() => {
+    if (vehicles.length === 0) {
+      return {
+        scenarios: [
+          {
+            id: 0,
+            name: 'Standard 3-Lane',
+            description: 'Default configuration',
+            lanes: [
+              { laneNumber: 1, startX: -15, endX: -5, description: 'Left Lane', width: 10 },
+              { laneNumber: 2, startX: -5, endX: 5, description: 'Center Lane', width: 10 },
+              { laneNumber: 3, startX: 5, endX: 15, description: 'Right Lane', width: 10 }
+            ]
+          }
+        ],
+        vehicleStats: { count: 0, avgWidth: 0, avgLength: 0, types: {} }
+      };
+    }
+
+    // Analyze vehicle data
+    const vehicleWidths = vehicles.map(v => v.position.width);
+    const vehicleLengths = vehicles.map(v => v.position.length);
+    const vehicleTypes = vehicles.map(v => v.position.vehicleType);
+    
+    const avgWidth = vehicleWidths.reduce((sum, w) => sum + w, 0) / vehicleWidths.length;
+    const avgLength = vehicleLengths.reduce((sum, l) => sum + l, 0) / vehicleLengths.length;
+    const maxWidth = Math.max(...vehicleWidths);
+    const minWidth = Math.min(...vehicleWidths);
+    
+    // Count vehicle types
+    const typeCount = vehicleTypes.reduce((acc, type) => {
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Analyze actual radar lane assignments and X positions
+    const laneData = vehicles.reduce((acc, v) => {
+      const laneNo = v.position.laneNo;
+      const x = v.position.x;
+      
+      if (!acc[laneNo]) {
+        acc[laneNo] = { xPositions: [], vehicles: [] };
+      }
+      acc[laneNo].xPositions.push(x);
+      acc[laneNo].vehicles.push(v);
+      return acc;
+    }, {} as Record<number, { xPositions: number[], vehicles: VehicleState[] }>);
+
+    // Calculate lane boundaries based on actual radar data
+    const radarLanes = Object.entries(laneData).map(([laneNo, data]) => {
+      const xPositions = data.xPositions;
+      const minX = Math.min(...xPositions);
+      const maxX = Math.max(...xPositions);
+      const avgX = xPositions.reduce((sum, x) => sum + x, 0) / xPositions.length;
+      
+      // Calculate lane width based on vehicle positions and widths
+      const vehicleWidths = data.vehicles.map(v => v.position.width);
+      const maxVehicleWidth = Math.max(...vehicleWidths);
+      const laneWidth = Math.max(maxVehicleWidth * 1.5, 3.5); // Safety buffer
+      
+      return {
+        laneNumber: parseInt(laneNo),
+        startX: avgX - laneWidth / 2,
+        endX: avgX + laneWidth / 2,
+        description: `Radar Lane ${laneNo}`,
+        width: laneWidth,
+        vehicleCount: data.vehicles.length,
+        avgX: avgX,
+        minX: minX,
+        maxX: maxX
+      };
+    }).sort((a, b) => a.avgX - b.avgX); // Sort by X position
+
+    // Create scenarios based on radar data
+    const scenarios = [
+      // Scenario 1: Radar-Based (actual radar lane assignments)
+      {
+        id: 0,
+        name: 'Radar-Based',
+        description: `Based on actual radar lanes (${radarLanes.length} lanes)`,
+        lanes: radarLanes
+      },
+      
+      // Scenario 2: Optimized Radar (merge close lanes, expand wide ones)
+      {
+        id: 1,
+        name: 'Optimized Radar',
+        description: 'Optimized radar lanes with better spacing',
+        lanes: (() => {
+          if (radarLanes.length === 0) return radarLanes;
+          
+          // Merge lanes that are too close together
+          const mergedLanes = [];
+          let currentLane = radarLanes[0];
+          
+          for (let i = 1; i < radarLanes.length; i++) {
+            const nextLane = radarLanes[i];
+            const distance = nextLane.avgX - currentLane.avgX;
+            
+            if (distance < 4.0) { // Merge if too close
+              currentLane = {
+                ...currentLane,
+                endX: nextLane.endX,
+                width: nextLane.endX - currentLane.startX,
+                description: `Merged Lane ${currentLane.laneNumber}-${nextLane.laneNumber}`,
+                vehicleCount: currentLane.vehicleCount + nextLane.vehicleCount
+              };
+            } else {
+              mergedLanes.push(currentLane);
+              currentLane = nextLane;
+            }
+          }
+          mergedLanes.push(currentLane);
+          
+          return mergedLanes;
+        })()
+      },
+      
+      // Scenario 3: Standardized (convert radar lanes to standard 3-lane)
+      {
+        id: 2,
+        name: 'Standardized',
+        description: 'Convert radar lanes to standard 3-lane configuration',
+        lanes: (() => {
+          const totalWidth = DETECTION_ZONE.maxX - DETECTION_ZONE.minX - 2;
+          const laneWidth = totalWidth / 3;
+          const startX = DETECTION_ZONE.minX + 1;
+          
+          return [
+            { laneNumber: 1, startX: startX, endX: startX + laneWidth, description: 'Left Lane', width: laneWidth },
+            { laneNumber: 2, startX: startX + laneWidth, endX: startX + 2 * laneWidth, description: 'Center Lane', width: laneWidth },
+            { laneNumber: 3, startX: startX + 2 * laneWidth, endX: startX + 3 * laneWidth, description: 'Right Lane', width: laneWidth }
+          ];
+        })()
+      }
+    ];
+
+    // Analyze lane usage from radar data
+    const laneUsage = vehicles.reduce((acc, v) => {
+      const lane = v.position.laneNo;
+      acc[lane] = (acc[lane] || 0) + 1;
+      return acc;
+    }, {} as Record<number, number>);
+
+    return {
+      scenarios,
+      vehicleStats: {
+        count: vehicles.length,
+        avgWidth: avgWidth,
+        avgLength: avgLength,
+        maxWidth: maxWidth,
+        minWidth: minWidth,
+        types: typeCount,
+        laneUsage: laneUsage,
+        radarLanes: radarLanes
+      }
+    };
+  }, [vehicles]);
+
+  // Get current scenario lanes
+  const getCurrentScenarioLanes = useCallback(() => {
+    const analysis = analyzeRadarData();
+    return analysis.scenarios[selectedScenario]?.lanes || analysis.scenarios[0].lanes;
+  }, [analyzeRadarData, selectedScenario]);
+
   // Drawing functions
-  const drawDetectionZone = useCallback((ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = '#E5E7EB';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
+  const drawRoadBackground = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Draw road surface with better visual design
+    const roadWidth = DETECTION_ZONE.maxX - DETECTION_ZONE.minX; // 30 meters wide road
+    const roadLength = DETECTION_ZONE.maxY - DETECTION_ZONE.minY; // Full 300 meters detection range
+    const shoulderWidth = 5; // 5 meters shoulder on each side
     
-    const visualZone = radarToVisual(DETECTION_ZONE.minX, DETECTION_ZONE.minY);
-    const visualZoneEnd = radarToVisual(DETECTION_ZONE.maxX, DETECTION_ZONE.maxY);
+    // Draw road shoulders (darker gray)
+    ctx.fillStyle = '#4B5563';
+    const leftShoulderStart = radarToVisual(-roadWidth/2 - shoulderWidth, 0);
+    const leftShoulderEnd = radarToVisual(-roadWidth/2, roadLength);
+    const rightShoulderStart = radarToVisual(roadWidth/2, 0);
+    const rightShoulderEnd = radarToVisual(roadWidth/2 + shoulderWidth, roadLength);
     
-    ctx.strokeRect(
-      visualZone.x,
-      visualZone.y,
-      visualZoneEnd.x - visualZone.x,
-      visualZoneEnd.y - visualZone.y
+    // Left shoulder
+    ctx.fillRect(
+      leftShoulderStart.x,
+      leftShoulderStart.y,
+      leftShoulderEnd.x - leftShoulderStart.x,
+      leftShoulderEnd.y - leftShoulderStart.y
     );
     
+    // Right shoulder
+    ctx.fillRect(
+      rightShoulderStart.x,
+      rightShoulderStart.y,
+      rightShoulderEnd.x - rightShoulderStart.x,
+      rightShoulderEnd.y - rightShoulderStart.y
+    );
+    
+    // Draw main road surface (asphalt color)
+    ctx.fillStyle = '#1F2937';
+    const roadStart = radarToVisual(-roadWidth/2, 0);
+    const roadEnd = radarToVisual(roadWidth/2, roadLength);
+    
+    ctx.fillRect(
+      roadStart.x,
+      roadStart.y,
+      roadEnd.x - roadStart.x,
+      roadEnd.y - roadStart.y
+    );
+    
+    // Draw road center line (yellow dashed)
+    ctx.strokeStyle = '#FCD34D';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
+    
+    const centerStart = radarToVisual(0, 0);
+    const centerEnd = radarToVisual(0, roadLength);
+    
+    ctx.beginPath();
+    ctx.moveTo(centerStart.x, centerStart.y);
+    ctx.lineTo(centerEnd.x, centerEnd.y);
+    ctx.stroke();
+    
+    // Draw lane dividers (white dashed)
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 3]);
+    
+    // Left lane divider
+    const leftDividerStart = radarToVisual(-roadWidth/4, 0);
+    const leftDividerEnd = radarToVisual(-roadWidth/4, roadLength);
+    
+    ctx.beginPath();
+    ctx.moveTo(leftDividerStart.x, leftDividerStart.y);
+    ctx.lineTo(leftDividerEnd.x, leftDividerEnd.y);
+    ctx.stroke();
+    
+    // Right lane divider
+    const rightDividerStart = radarToVisual(roadWidth/4, 0);
+    const rightDividerEnd = radarToVisual(roadWidth/4, roadLength);
+    
+    ctx.beginPath();
+    ctx.moveTo(rightDividerStart.x, rightDividerStart.y);
+    ctx.lineTo(rightDividerEnd.x, rightDividerEnd.y);
+    ctx.stroke();
+    
+    // Reset line dash
     ctx.setLineDash([]);
   }, [radarToVisual]);
 
-  const drawLaneBoundaries = useCallback((ctx: CanvasRenderingContext2D) => {
-    ctx.strokeStyle = '#9CA3AF';
-    ctx.lineWidth = 1;
+  const drawDetectionZone = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Draw detection zone with better visual design
+    ctx.strokeStyle = '#3B82F6';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 5]);
     
-    LANE_BOUNDARIES.forEach(lane => {
-      const start = radarToVisual(lane.startX, lane.startY);
-      const end = radarToVisual(lane.endX, lane.endY);
-      
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(end.x, end.y);
-      ctx.stroke();
-      
-      // Draw lane label
-      ctx.fillStyle = '#6B7280';
-      ctx.font = '12px system-ui';
-      ctx.fillText(`Lane ${lane.laneNumber}`, start.x + 5, start.y + 15);
-    });
+    const roadLength = DETECTION_ZONE.maxY - DETECTION_ZONE.minY;
+    const detectionZoneStart = radarToVisual(DETECTION_ZONE.minX, DETECTION_ZONE.minY);
+    const detectionZoneEnd = radarToVisual(DETECTION_ZONE.maxX, DETECTION_ZONE.maxY);
+    
+    ctx.strokeRect(
+      detectionZoneStart.x,
+      detectionZoneStart.y,
+      detectionZoneEnd.x - detectionZoneStart.x,
+      detectionZoneEnd.y - detectionZoneStart.y
+    );
+    
+    // Add detection zone label
+    ctx.fillStyle = '#3B82F6';
+    ctx.font = 'bold 12px system-ui';
+    ctx.textAlign = 'center';
+    
+    const labelPos = radarToVisual(0, roadLength - 15);
+    ctx.fillText('Detection Zone', labelPos.x, labelPos.y);
+    
+    // Reset line dash and text alignment
+    ctx.setLineDash([]);
+    ctx.textAlign = 'left';
   }, [radarToVisual]);
 
-  const drawVehicleTrail = useCallback((ctx: CanvasRenderingContext2D, trajectory: VehiclePosition[]) => {
-    ctx.strokeStyle = '#3B82F6';
+  const drawLaneBoundaries = useCallback((ctx: CanvasRenderingContext2D) => {
+    const roadLength = DETECTION_ZONE.maxY - DETECTION_ZONE.minY;
+    const currentLanes = getCurrentScenarioLanes();
+    
+    // Draw lane boundary lines (white solid)
+    ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = 2;
-    ctx.globalAlpha = 0.6;
+    ctx.setLineDash([]);
+    
+    // Draw lane boundaries using current scenario
+    currentLanes.forEach(lane => {
+      // Left boundary of lane
+      const leftStart = radarToVisual(lane.startX, DETECTION_ZONE.minY);
+      const leftEnd = radarToVisual(lane.startX, DETECTION_ZONE.maxY);
+      
+      ctx.beginPath();
+      ctx.moveTo(leftStart.x, leftStart.y);
+      ctx.lineTo(leftEnd.x, leftEnd.y);
+      ctx.stroke();
+      
+      // Right boundary of lane
+      const rightStart = radarToVisual(lane.endX, DETECTION_ZONE.minY);
+      const rightEnd = radarToVisual(lane.endX, DETECTION_ZONE.maxY);
+      
+      ctx.beginPath();
+      ctx.moveTo(rightStart.x, rightStart.y);
+      ctx.lineTo(rightEnd.x, rightEnd.y);
+      ctx.stroke();
+    });
+    
+    // Draw lane labels using current scenario
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px system-ui';
+    ctx.textAlign = 'center';
+    
+    currentLanes.forEach(lane => {
+      const laneCenterX = (lane.startX + lane.endX) / 2;
+      const labelPos = radarToVisual(laneCenterX, 20);
+      ctx.fillText(lane.description, labelPos.x, labelPos.y);
+    });
+    
+    // Reset text alignment
+    ctx.textAlign = 'left';
+  }, [radarToVisual, getCurrentScenarioLanes]);
+
+  const drawCoordinateSystem = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Draw coordinate system indicators
+    ctx.strokeStyle = '#DC2626';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    
+    // X-axis (horizontal)
+    const xStart = radarToVisual(-15, 0);
+    const xEnd = radarToVisual(15, 0);
+    ctx.beginPath();
+    ctx.moveTo(xStart.x, xStart.y);
+    ctx.lineTo(xEnd.x, xEnd.y);
+    ctx.stroke();
+    
+    // Y-axis (vertical)
+    const yStart = radarToVisual(0, 0);
+    const yEnd = radarToVisual(0, 300);
+    ctx.beginPath();
+    ctx.moveTo(yStart.x, yStart.y);
+    ctx.lineTo(yEnd.x, yEnd.y);
+    ctx.stroke();
+    
+    // Draw origin marker
+    ctx.fillStyle = '#DC2626';
+    ctx.beginPath();
+    ctx.arc(yStart.x, yStart.y, 4, 0, 2 * Math.PI);
+    ctx.fill();
+    
+    // Draw labels
+    ctx.fillStyle = '#DC2626';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Road Center (0,0)', yStart.x, yStart.y - 10);
+  }, [radarToVisual]);
+
+  const drawScaleIndicator = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Draw scale indicator showing 0-300m
+    const scaleWidth = 200; // pixels for scale bar
+    const scaleHeight = 20;
+    const margin = 20;
+    
+    // Position scale at bottom right of canvas
+    const scaleX = CANVAS_CONFIG.width - scaleWidth - margin;
+    const scaleY = CANVAS_CONFIG.height - scaleHeight - margin;
+    
+    // Draw scale background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(scaleX - 10, scaleY - 5, scaleWidth + 20, scaleHeight + 10);
+    
+    // Draw scale bar
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([]);
     
     ctx.beginPath();
-    trajectory.forEach((pos, index) => {
+    ctx.moveTo(scaleX, scaleY + scaleHeight/2);
+    ctx.lineTo(scaleX + scaleWidth, scaleY + scaleHeight/2);
+    ctx.stroke();
+    
+    // Draw scale markers
+    ctx.lineWidth = 2;
+    const markerCount = 6; // 0, 60, 120, 180, 240, 300
+    for (let i = 0; i < markerCount; i++) {
+      const markerX = scaleX + (i * scaleWidth / (markerCount - 1));
+      const markerHeight = i % 2 === 0 ? 8 : 4; // Alternating marker heights
+      
+      ctx.beginPath();
+      ctx.moveTo(markerX, scaleY + scaleHeight/2 - markerHeight/2);
+      ctx.lineTo(markerX, scaleY + scaleHeight/2 + markerHeight/2);
+      ctx.stroke();
+    }
+    
+    // Draw scale labels
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 12px system-ui';
+    ctx.textAlign = 'center';
+    
+    // Main scale label
+    ctx.fillText('0-300m Scale', scaleX + scaleWidth/2, scaleY - 8);
+    
+    // Distance markers
+    ctx.font = '10px system-ui';
+    for (let i = 0; i < markerCount; i++) {
+      const markerX = scaleX + (i * scaleWidth / (markerCount - 1));
+      const distance = i * 60; // 0, 60, 120, 180, 240, 300
+      ctx.fillText(`${distance}m`, markerX, scaleY + scaleHeight + 15);
+    }
+    
+    // Reset text alignment
+    ctx.textAlign = 'left';
+  }, []);
+
+  const drawVehicleLegend = useCallback((ctx: CanvasRenderingContext2D) => {
+    // Draw vehicle type legend
+    const legendWidth = 180;
+    const legendHeight = 140;
+    const margin = 20;
+    
+    // Position legend at top left of canvas
+    const legendX = margin;
+    const legendY = margin;
+    
+    // Draw legend background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(legendX, legendY, legendWidth, legendHeight);
+    
+    // Draw legend border
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(legendX, legendY, legendWidth, legendHeight);
+    
+    // Draw legend title
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Vehicle Types', legendX + legendWidth/2, legendY + 20);
+    
+    // Draw vehicle type items
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'left';
+    
+    const vehicleTypes = [
+      { type: 'car', label: 'Car' },
+      { type: 'truck', label: 'Truck' },
+      { type: 'motorcycle', label: 'Motorcycle' },
+      { type: 'bus', label: 'Bus' },
+      { type: 'van', label: 'Van' },
+      { type: 'suv', label: 'SUV' },
+      { type: 'unknown', label: 'Unknown' }
+    ];
+    
+    vehicleTypes.forEach((item, index) => {
+      const itemY = legendY + 40 + (index * 16);
+      const color = VEHICLE_COLORS[item.type as keyof typeof VEHICLE_COLORS];
+      
+      // Draw color square
+      ctx.fillStyle = color;
+      ctx.fillRect(legendX + 10, itemY - 8, 12, 12);
+      
+      // Draw label
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(item.label, legendX + 30, itemY);
+    });
+    
+    // Reset text alignment
+    ctx.textAlign = 'left';
+  }, []);
+
+  const drawVehicleTrail = useCallback((ctx: CanvasRenderingContext2D, trajectory: VehiclePosition[], vehicleType: string) => {
+    // Filter trajectory points to only include those within the detection zone
+    const filteredTrajectory = trajectory.filter(pos => 
+      pos.x >= DETECTION_ZONE.minX && pos.x <= DETECTION_ZONE.maxX &&
+      pos.y >= DETECTION_ZONE.minY && pos.y <= DETECTION_ZONE.maxY
+    );
+    
+    if (filteredTrajectory.length < 2) return; // Need at least 2 points for a trail
+    
+    // Use vehicle-specific color for trail
+    const color = VEHICLE_COLORS[vehicleType as keyof typeof VEHICLE_COLORS] || VEHICLE_COLORS.unknown;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1; // Smaller trail width
+    ctx.globalAlpha = 0.4; // More transparent
+    
+    ctx.beginPath();
+    filteredTrajectory.forEach((pos, index) => {
       const visualPos = radarToVisual(pos.x, pos.y);
       if (index === 0) {
         ctx.moveTo(visualPos.x, visualPos.y);
@@ -115,9 +581,42 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     ctx.globalAlpha = 1;
   }, [radarToVisual]);
 
+  const drawHeatMapRoad = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (globalTrailHistory.size === 0) return;
+    
+    const maxCount = Math.max(...Array.from(globalTrailHistory.values()));
+    const gridSize = 2; // meters
+    
+    globalTrailHistory.forEach((count, key) => {
+      const [x, y] = key.split('_').map(Number);
+      
+      // Skip if outside detection zone
+      if (x < DETECTION_ZONE.minX || x > DETECTION_ZONE.maxX ||
+          y < DETECTION_ZONE.minY || y > DETECTION_ZONE.maxY) {
+        return;
+      }
+      
+      const intensity = count / maxCount;
+      const alpha = Math.min(intensity * 0.6, 0.5); // Cap at 50% opacity
+      
+      // Use blue-to-red gradient based on intensity
+      const hue = (1 - intensity) * 240; // 240 (blue) to 0 (red)
+      ctx.fillStyle = `hsla(${hue}, 80%, 50%, ${alpha})`;
+      
+      // Draw grid cell
+      const pos1 = radarToVisual(x, y);
+      const pos2 = radarToVisual(x + gridSize, y + gridSize);
+      const width = Math.abs(pos2.x - pos1.x);
+      const height = Math.abs(pos2.y - pos1.y);
+      
+      ctx.fillRect(pos1.x, pos1.y, width, height);
+    });
+  }, [globalTrailHistory, radarToVisual]);
+
   const drawVehicle = useCallback((ctx: CanvasRenderingContext2D, vehicle: VehicleState, pos: { x: number; y: number }, size: { width: number; height: number }) => {
     const color = VEHICLE_COLORS[vehicle.position.vehicleType as keyof typeof VEHICLE_COLORS] || VEHICLE_COLORS.unknown;
     const speedIntensity = getSpeedIntensity(vehicle.position.speed);
+    
     
     // Apply speed-based color intensity
     const rgb = hexToRgb(color);
@@ -182,15 +681,22 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
   }, []);
 
   const drawVehicles = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (vehicles.length === 0) {
+      return;
+    }
+    
     vehicles.forEach(vehicle => {
-      if (!vehicle.isVisible) return;
+      if (!vehicle.isVisible) {
+        return;
+      }
       
       const pos = radarToVisual(vehicle.position.x, vehicle.position.y);
       const size = calculateVehicleSize(vehicle.position);
       
+      
       // Draw vehicle trail
       if (renderOptions.showTrails && vehicle.trajectory.length > 1) {
-        drawVehicleTrail(ctx, vehicle.trajectory);
+        drawVehicleTrail(ctx, vehicle.trajectory, vehicle.position.vehicleType);
       }
       
       // Draw vehicle
@@ -204,7 +710,7 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
   }, [vehicles, renderOptions, radarToVisual, calculateVehicleSize, drawVehicleTrail, drawVehicle, drawSpeedVector]);
 
   useEffect(() => {
-    // Connect to tracking WebSocket
+    // Connect to WebSocket for real-time vehicle tracking
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.hostname}:8081`;
     const websocket = new WebSocket(wsUrl);
@@ -212,46 +718,71 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     websocket.onopen = () => {
       console.log('🔌 Connected to Tracking WebSocket');
       setConnectionStatus('connected');
+      
+      // Subscribe to the selected device
+      websocket.send(JSON.stringify({
+        type: 'subscribe',
+        deviceId: selectedDevice.id
+      }));
     };
 
     websocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         
-        if (data.type === 'tracking_update') {
-          // Update vehicles from tracking data
-          setVehicles(prevVehicles => {
-            const vehicleMap = new Map(prevVehicles.map(v => [v.targetId, v]));
-            
-            data.data.vehicles.forEach((vehicle: VehiclePosition) => {
-              const existingVehicle = vehicleMap.get(vehicle.targetId);
-              if (existingVehicle) {
-                existingVehicle.previousPosition = existingVehicle.position;
-                existingVehicle.position = vehicle;
-                existingVehicle.trajectory.push(vehicle);
-                if (existingVehicle.trajectory.length > CANVAS_CONFIG.maxTrailLength) {
-                  existingVehicle.trajectory.shift();
-                }
-              } else {
-                vehicleMap.set(vehicle.targetId, {
-                  targetId: vehicle.targetId,
-                  position: vehicle,
-                  trajectory: [vehicle],
-                  isVisible: true,
-                  lastSeen: vehicle.timestamp,
-                  enterTime: vehicle.timestamp
-                });
-              }
+        if (data.type === 'initial_data' || data.type === 'vehicle_update') {
+          // Convert WebSocket data to vehicle states
+          const vehicleStates: VehicleState[] = data.vehicles.map((vehicle: any) => ({
+            targetId: vehicle.targetId,
+            position: {
+              targetId: vehicle.targetId,
+              x: vehicle.x,
+              y: vehicle.y,
+              length: 4.5, // Default vehicle length
+              width: 1.8,  // Default vehicle width
+              height: 1.5, // Default vehicle height
+              speed: vehicle.speed,
+              vehicleType: vehicle.vehicleType,
+              laneNo: vehicle.laneNo,
+              timestamp: new Date(),
+              xSpeed: 0,
+              ySpeed: 0,
+              acceleration: 0
+            },
+            trajectory: [{ // Simple trajectory for now
+              targetId: vehicle.targetId,
+              x: vehicle.x,
+              y: vehicle.y,
+              length: 4.5,
+              width: 1.8,
+              height: 1.5,
+              speed: vehicle.speed,
+              vehicleType: vehicle.vehicleType,
+              laneNo: vehicle.laneNo,
+              timestamp: new Date(),
+              xSpeed: 0,
+              ySpeed: 0,
+              acceleration: 0
+            }],
+            isVisible: true,
+            lastSeen: new Date(),
+            enterTime: new Date()
+          }));
+          
+          setVehicles(vehicleStates);
+          
+          // Accumulate trail history for heat map
+          const newTrailHistory = new Map(globalTrailHistory);
+          vehicleStates.forEach(vehicle => {
+            vehicle.trajectory.forEach(pos => {
+              const key = getGridKey(pos.x, pos.y);
+              newTrailHistory.set(key, (newTrailHistory.get(key) || 0) + 1);
             });
-            
-            return Array.from(vehicleMap.values());
           });
-        } else if (data.type === 'tracking_summary') {
-          // Update tracking summary
-          console.log('Tracking summary:', data.data);
+          setGlobalTrailHistory(newTrailHistory);
         }
       } catch (error) {
-        console.error('Error parsing tracking WebSocket message:', error);
+        console.error('Error parsing WebSocket message:', error);
       }
     };
 
@@ -268,7 +799,21 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     return () => {
       websocket.close();
     };
-  }, []);
+  }, [selectedDevice.id]);
+
+  // Effect to draw heat map once when sufficient data accumulated
+  useEffect(() => {
+    if (heatMapInitialized || globalTrailHistory.size < 100) return;
+    
+    const canvas = heatMapCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawHeatMapRoad(ctx);
+    setHeatMapInitialized(true);
+  }, [globalTrailHistory, heatMapInitialized, drawHeatMapRoad]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -285,20 +830,36 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     const animate = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       
+      
+      // Road background removed as requested
+      // drawRoadBackground(ctx);
+      
       // Draw detection zone
       drawDetectionZone(ctx);
       
-      // Draw lane boundaries
-      drawLaneBoundaries(ctx);
+      // Lane boundaries removed as part of road background
+      // drawLaneBoundaries(ctx);
+      
+      // Draw coordinate system indicator
+      if (showCoordinateSystem) {
+        drawCoordinateSystem(ctx);
+      }
+      
+      // Draw scale indicator
+      drawScaleIndicator(ctx);
+      
+      // Draw vehicle legend
+      drawVehicleLegend(ctx);
       
       // Draw vehicles
       drawVehicles(ctx);
+      
       
       requestAnimationFrame(animate);
     };
 
     animate();
-  }, [vehicles, renderOptions, drawDetectionZone, drawLaneBoundaries, drawVehicles]);
+  }, [vehicles, renderOptions, showCoordinateSystem, drawRoadBackground, drawDetectionZone, drawLaneBoundaries, drawCoordinateSystem, drawScaleIndicator, drawVehicleLegend, drawVehicles]);
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -324,8 +885,48 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     setSelectedVehicle(clickedVehicle || null);
   };
 
+  const handleCanvasWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
+    event.preventDefault();
+    
+    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+    const newZoomLevel = Math.max(0.1, Math.min(3.0, renderOptions.zoomLevel * zoomFactor));
+    
+    setRenderOptions(prev => ({
+      ...prev,
+      zoomLevel: newZoomLevel
+    }));
+  };
+
+  const handleCanvasMouseDown = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (event.button === 0) { // Left mouse button
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startPanX = renderOptions.panX;
+      const startPanY = renderOptions.panY;
+
+      const handleMouseMove = (e: MouseEvent) => {
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        
+        setRenderOptions(prev => ({
+          ...prev,
+          panX: startPanX + deltaX,
+          panY: startPanY + deltaY
+        }));
+      };
+
+      const handleMouseUp = () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+  };
+
   return (
-    <div className={`space-y-6 ${className}`}>
+    <div className={`space-y-6 w-full ${className}`}>
       {/* Controls */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
@@ -343,6 +944,9 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
             </div>
             <div className="text-sm text-gray-500">
               {vehicles.filter(v => v.isVisible).length} vehicles
+            </div>
+            <div className="text-sm text-gray-500">
+              Zoom: {(renderOptions.zoomLevel * 100).toFixed(0)}% | Pan: ({renderOptions.panX.toFixed(0)}, {renderOptions.panY.toFixed(0)})
             </div>
           </div>
         </div>
@@ -366,16 +970,212 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
             />
             <span className="text-sm text-gray-700">Show Speed Vectors</span>
           </label>
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={showCoordinateSystem}
+              onChange={(e) => setShowCoordinateSystem(e.target.checked)}
+              className="mr-2"
+            />
+            <span className="text-sm text-gray-700">Show Coordinate System</span>
+          </label>
+        </div>
+        
+        {/* Heat Map Controls */}
+        <div className="flex items-center space-x-4 mt-4">
+          <button
+            onClick={() => {
+              setGlobalTrailHistory(new Map());
+              setHeatMapInitialized(false);
+            }}
+            className="px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+          >
+            Reset Heat Map
+          </button>
+          <div className="text-sm text-gray-600">
+            Trail Data Points: {globalTrailHistory.size}
+            {heatMapInitialized && <span className="ml-2 text-green-600">✓ Rendered</span>}
+          </div>
+        </div>
+        
+        {/* Zoom Controls */}
+        <div className="flex items-center space-x-4 mt-4">
+          <label className="text-sm font-medium text-gray-700">Zoom:</label>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: Math.max(0.1, prev.zoomLevel - 0.2) }))}
+            className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm"
+          >
+            -
+          </button>
+          <span className="text-sm text-gray-600 w-16 text-center">
+            {(renderOptions.zoomLevel * 100).toFixed(0)}%
+          </span>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: Math.min(3.0, prev.zoomLevel + 0.2) }))}
+            className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm"
+          >
+            +
+          </button>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: 1.0, panX: 0, panY: 0 }))}
+            className="px-3 py-1 bg-blue-200 hover:bg-blue-300 rounded text-sm"
+          >
+            Reset View
+          </button>
+          <div className="text-xs text-gray-500 ml-4">
+            Mouse wheel to zoom • Drag to pan
+          </div>
+        </div>
+        
+        {/* Radar Data Analysis & Scenario Selection */}
+        <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+          <h4 className="text-sm font-medium text-blue-900 mb-2">Radar Data Analysis & Lane Scenarios</h4>
+          <div className="text-xs text-blue-700 space-y-2">
+            {(() => {
+              const analysis = analyzeRadarData();
+              const currentScenario = analysis.scenarios[selectedScenario];
+              
+              return (
+                <>
+                  {/* Vehicle Statistics */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>Vehicles: {analysis.vehicleStats.count}</div>
+                    <div>Avg Width: {analysis.vehicleStats.avgWidth.toFixed(1)}m</div>
+                    <div>Avg Length: {analysis.vehicleStats.avgLength.toFixed(1)}m</div>
+                    <div>Max Width: {analysis.vehicleStats.maxWidth?.toFixed(1) || 'N/A'}m</div>
+                  </div>
+                  
+                  {/* Vehicle Types */}
+                  <div>
+                    <strong>Vehicle Types:</strong> {Object.entries(analysis.vehicleStats.types)
+                      .map(([type, count]) => `${type}: ${count}`)
+                      .join(', ')}
+                  </div>
+                  
+                  {/* Lane Usage from Radar */}
+                  <div>
+                    <strong>Radar Lane Usage:</strong> {analysis.vehicleStats.laneUsage ? 
+                      Object.entries(analysis.vehicleStats.laneUsage)
+                        .map(([lane, count]) => `Lane ${lane}: ${count}`)
+                        .join(', ') : 'No data'}
+                  </div>
+                  
+                  {/* Radar Lane Analysis */}
+                  {analysis.vehicleStats.radarLanes && analysis.vehicleStats.radarLanes.length > 0 && (
+                    <div>
+                      <strong>Radar Lane Analysis:</strong>
+                      <div className="mt-1 space-y-1">
+                        {analysis.vehicleStats.radarLanes.map(lane => (
+                          <div key={lane.laneNumber} className="text-xs bg-gray-100 px-2 py-1 rounded">
+                            Lane {lane.laneNumber}: X={lane.avgX.toFixed(1)}m, Width={lane.width.toFixed(1)}m, Vehicles={lane.vehicleCount}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Scenario Selector */}
+                  <div className="mt-3">
+                    <label className="block text-xs font-medium text-blue-900 mb-1">Select Lane Scenario:</label>
+                    <div className="grid grid-cols-3 gap-1">
+                      {analysis.scenarios.map((scenario) => (
+                        <button
+                          key={scenario.id}
+                          onClick={() => setSelectedScenario(scenario.id)}
+                          className={`px-2 py-1 rounded text-xs ${
+                            selectedScenario === scenario.id
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-blue-700 hover:bg-blue-100'
+                          }`}
+                        >
+                          {scenario.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Current Scenario Info */}
+                  <div className="mt-2 p-2 bg-white rounded">
+                    <div className="font-medium">{currentScenario.name}</div>
+                    <div className="text-gray-600">{currentScenario.description}</div>
+                    <div className="mt-1">
+                      <strong>Lanes:</strong> {currentScenario.lanes.length} | 
+                      <strong> Width:</strong> {currentScenario.lanes[0]?.width?.toFixed(1)}m each
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 mt-1">
+                      {currentScenario.lanes.map(lane => (
+                        <div key={lane.laneNumber} className="bg-gray-100 px-2 py-1 rounded text-center text-xs">
+                          {lane.description}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+
+        {/* Preset Zoom Levels */}
+        <div className="flex items-center space-x-2 mt-2">
+          <span className="text-xs text-gray-600">Quick zoom:</span>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: 0.1, panX: 0, panY: 0 }))}
+            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs"
+          >
+            1/10 Scale
+          </button>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: 0.5, panX: 0, panY: 0 }))}
+            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs"
+          >
+            Fit All
+          </button>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: 1.0, panX: 0, panY: 0 }))}
+            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs"
+          >
+            Normal
+          </button>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: 2.0, panX: 0, panY: 0 }))}
+            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs"
+          >
+            Close Up
+          </button>
+          <button
+            onClick={() => setRenderOptions(prev => ({ ...prev, zoomLevel: 3.0, panX: 0, panY: 0 }))}
+            className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs"
+          >
+            Detail
+          </button>
         </div>
       </div>
 
       {/* Canvas */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow overflow-hidden relative">
+        <canvas
+          ref={heatMapCanvasRef}
+          width={CANVAS_CONFIG.width}
+          height={CANVAS_CONFIG.height}
+          className="absolute top-0 left-0 w-full h-full"
+          style={{ 
+            height: '900px',
+            maxWidth: '100%',
+            objectFit: 'contain'
+          }}
+        />
         <canvas
           ref={canvasRef}
           onClick={handleCanvasClick}
-          className="w-full h-full cursor-crosshair"
-          style={{ height: '600px' }}
+          onWheel={handleCanvasWheel}
+          onMouseDown={handleCanvasMouseDown}
+          className="relative w-full h-full cursor-crosshair"
+          style={{ 
+            height: '900px',
+            maxWidth: '100%',
+            objectFit: 'contain'
+          }}
         />
       </div>
 

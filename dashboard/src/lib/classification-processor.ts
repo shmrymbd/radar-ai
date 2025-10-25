@@ -6,15 +6,20 @@ import {
   LaneUtilization, 
   PeakHourAnalysis,
   ClassificationSummary,
+  HistoricalClassificationData,
   VEHICLE_TYPE_MAP,
   SPEED_RANGES,
   TIME_SLOTS
 } from '@/types/classification';
 
+// Global storage for classification data (in-memory)
+let globalClassificationData: Map<string, any> = new Map();
+let globalTimeBasedData: Map<string, any> = new Map();
+
 export class ClassificationProcessor {
   private static instance: ClassificationProcessor;
-  private classificationData: Map<string, any> = new Map();
-  private timeBasedData: Map<string, any> = new Map();
+  private classificationData: Map<string, any>;
+  private timeBasedData: Map<string, any>;
 
   public static getInstance(): ClassificationProcessor {
     if (!ClassificationProcessor.instance) {
@@ -23,13 +28,23 @@ export class ClassificationProcessor {
     return ClassificationProcessor.instance;
   }
 
+  private constructor() {
+    this.classificationData = globalClassificationData;
+    this.timeBasedData = globalTimeBasedData;
+  }
+
   /**
    * Process PassData for vehicle classification analytics
+   * Uses ALL available fields from packet 0x05 (PassData)
    */
   public processPassDataForClassification(data: ProcessedPassData): void {
-    const vehicleType = this.getVehicleTypeName(data.vehicleType);
+    // vehicleType is already a string from ProcessedPassData
+    const vehicleType = data.vehicleType;
     const timestamp = data.timestamp;
     const hour = timestamp.getHours();
+    
+    console.log(`Processing vehicle: ${vehicleType} at ${timestamp.toISOString()}`);
+    console.log(`Using all PassData fields: lane=${data.laneNumber}, position=${data.crossSectionPosition}, speed=${data.crossSectionSpeed}, headway=${data.headwayTime}, occupancy=${data.occupancyDuration}, status=${data.occupancyStatus}`);
     
     // Update real-time classification data
     this.updateClassificationData(vehicleType, data);
@@ -39,6 +54,17 @@ export class ClassificationProcessor {
     
     // Update hourly analysis
     this.updateHourlyAnalysis(vehicleType, data, hour);
+    
+    // NEW: Update headway analysis (using headwayTime)
+    this.updateHeadwayAnalysis(data);
+    
+    // NEW: Update occupancy analysis (using occupancyDuration and occupancyStatus)
+    this.updateOccupancyAnalysis(data);
+    
+    // NEW: Update position analysis (using crossSectionPosition)
+    this.updatePositionAnalysis(data);
+    
+    console.log(`Total vehicles after processing: ${this.getTotalVehicleCount()}`);
   }
 
   /**
@@ -188,7 +214,7 @@ export class ClassificationProcessor {
       const percentage = totalVehicles > 0 ? (count / totalVehicles) * 100 : 0;
       const averageSpeed = data.count > 0 ? data.totalSpeed / data.count : 0;
       
-      const speeds = data.speeds.sort((a, b) => a - b);
+      const speeds = data.speeds.sort((a: number, b: number) => a - b);
       const speedRange = {
         min: speeds[0] || 0,
         max: speeds[speeds.length - 1] || 0,
@@ -216,7 +242,7 @@ export class ClassificationProcessor {
       const speeds = data.speeds;
       
       const speedDistribution = SPEED_RANGES.map(range => {
-        const count = speeds.filter(speed => speed >= range.min && speed < range.max).length;
+        const count = speeds.filter((speed: number) => speed >= range.min && speed < range.max).length;
         return {
           range: range.range,
           count,
@@ -224,7 +250,7 @@ export class ClassificationProcessor {
         };
       });
 
-      const violationCount = speeds.filter(speed => speed > 60).length; // Assuming 60 km/h speed limit
+      const violationCount = speeds.filter((speed: number) => speed > 60).length; // Assuming 60 km/h speed limit
       const violationRate = speeds.length > 0 ? (violationCount / speeds.length) * 100 : 0;
 
       speedByType.push({
@@ -277,7 +303,7 @@ export class ClassificationProcessor {
       }
 
       const averageSpeed = data.speeds.length > 0 ? 
-        data.speeds.reduce((sum, speed) => sum + speed, 0) / data.speeds.length : 0;
+        data.speeds.reduce((sum: number, speed: number) => sum + speed, 0) / data.speeds.length : 0;
       
       const utilizationRate = this.calculateLaneUtilizationRate(laneNumber, data.totalVehicles);
       const occupancyRate = this.calculateOccupancyRate(laneNumber, data.totalVehicles);
@@ -336,7 +362,7 @@ export class ClassificationProcessor {
       }
 
       const averageSpeed = data.speeds.length > 0 ? 
-        data.speeds.reduce((sum, speed) => sum + speed, 0) / data.speeds.length : 0;
+        data.speeds.reduce((sum: number, speed: number) => sum + speed, 0) / data.speeds.length : 0;
       
       const trafficDensity = this.calculateTrafficDensity(hour, data.totalVehicles);
 
@@ -384,7 +410,7 @@ export class ClassificationProcessor {
   private calculateSpeedViolations(): number {
     let violations = 0;
     for (const data of this.classificationData.values()) {
-      violations += data.speeds.filter(speed => speed > 60).length; // Assuming 60 km/h speed limit
+      violations += data.speeds.filter((speed: number) => speed > 60).length; // Assuming 60 km/h speed limit
     }
     return violations;
   }
@@ -412,5 +438,118 @@ export class ClassificationProcessor {
   private calculateTrafficDensity(hour: number, vehicleCount: number): number {
     // Simplified calculation - would need intersection area data
     return vehicleCount / 1000; // Placeholder
+  }
+
+  /**
+   * NEW: Analyze headway patterns using headwayTime
+   */
+  private updateHeadwayAnalysis(data: ProcessedPassData): void {
+    const headwayKey = 'headway_analysis';
+    const existing = this.classificationData.get(headwayKey) || {
+      totalHeadwayTime: 0,
+      headwayCount: 0,
+      headwayTimes: [],
+      averageHeadway: 0,
+      minHeadway: Infinity,
+      maxHeadway: 0
+    };
+
+    if (data.headwayTime > 0) {
+      existing.totalHeadwayTime += data.headwayTime;
+      existing.headwayCount++;
+      existing.headwayTimes.push(data.headwayTime);
+      existing.averageHeadway = existing.totalHeadwayTime / existing.headwayCount;
+      existing.minHeadway = Math.min(existing.minHeadway, data.headwayTime);
+      existing.maxHeadway = Math.max(existing.maxHeadway, data.headwayTime);
+    }
+
+    this.classificationData.set(headwayKey, existing);
+  }
+
+  /**
+   * NEW: Analyze occupancy patterns using occupancyDuration and occupancyStatus
+   */
+  private updateOccupancyAnalysis(data: ProcessedPassData): void {
+    const occupancyKey = 'occupancy_analysis';
+    const existing = this.classificationData.get(occupancyKey) || {
+      totalOccupancyDuration: 0,
+      occupancyCount: 0,
+      enteringCount: 0,
+      exitingCount: 0,
+      averageOccupancyDuration: 0,
+      occupancyDurations: []
+    };
+
+    existing.totalOccupancyDuration += data.occupancyDuration;
+    existing.occupancyCount++;
+    existing.occupancyDurations.push(data.occupancyDuration);
+    existing.averageOccupancyDuration = existing.totalOccupancyDuration / existing.occupancyCount;
+
+    if (data.occupancyStatus === 'entering') {
+      existing.enteringCount++;
+    } else if (data.occupancyStatus === 'exiting') {
+      existing.exitingCount++;
+    }
+
+    this.classificationData.set(occupancyKey, existing);
+  }
+
+  /**
+   * NEW: Analyze position patterns using crossSectionPosition
+   */
+  private updatePositionAnalysis(data: ProcessedPassData): void {
+    const positionKey = 'position_analysis';
+    const existing = this.classificationData.get(positionKey) || {
+      totalPosition: 0,
+      positionCount: 0,
+      positions: [],
+      averagePosition: 0,
+      minPosition: Infinity,
+      maxPosition: 0
+    };
+
+    existing.totalPosition += data.crossSectionPosition;
+    existing.positionCount++;
+    existing.positions.push(data.crossSectionPosition);
+    existing.averagePosition = existing.totalPosition / existing.positionCount;
+    existing.minPosition = Math.min(existing.minPosition, data.crossSectionPosition);
+    existing.maxPosition = Math.max(existing.maxPosition, data.crossSectionPosition);
+
+    this.classificationData.set(positionKey, existing);
+  }
+
+  /**
+   * Get enhanced metrics including all PassData fields analysis
+   */
+  public getEnhancedClassificationMetrics(): any {
+    const baseMetrics = this.getClassificationMetrics();
+    const headwayAnalysis = this.classificationData.get('headway_analysis') || {};
+    const occupancyAnalysis = this.classificationData.get('occupancy_analysis') || {};
+    const positionAnalysis = this.classificationData.get('position_analysis') || {};
+
+    return {
+      ...baseMetrics,
+      headwayAnalysis: {
+        averageHeadway: headwayAnalysis.averageHeadway || 0,
+        minHeadway: headwayAnalysis.minHeadway === Infinity ? 0 : headwayAnalysis.minHeadway,
+        maxHeadway: headwayAnalysis.maxHeadway || 0,
+        totalHeadwayTime: headwayAnalysis.totalHeadwayTime || 0,
+        headwayCount: headwayAnalysis.headwayCount || 0
+      },
+      occupancyAnalysis: {
+        averageOccupancyDuration: occupancyAnalysis.averageOccupancyDuration || 0,
+        enteringCount: occupancyAnalysis.enteringCount || 0,
+        exitingCount: occupancyAnalysis.exitingCount || 0,
+        totalOccupancyDuration: occupancyAnalysis.totalOccupancyDuration || 0,
+        occupancyCount: occupancyAnalysis.occupancyCount || 0
+      },
+      positionAnalysis: {
+        averagePosition: positionAnalysis.averagePosition || 0,
+        minPosition: positionAnalysis.minPosition === Infinity ? 0 : positionAnalysis.minPosition,
+        maxPosition: positionAnalysis.maxPosition || 0,
+        totalPosition: positionAnalysis.totalPosition || 0,
+        positionCount: positionAnalysis.positionCount || 0
+      }
+    };
   }
 }

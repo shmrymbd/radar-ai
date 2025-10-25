@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useDevice } from '@/contexts/DeviceContext';
 import { DashboardSummary } from '@/lib/redis-storage';
 
 export default function DashboardOverview() {
+  const { selectedDevice } = useDevice();
   const [dashboardData, setDashboardData] = useState<DashboardSummary | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [deviceKey, setDeviceKey] = useState<string>(selectedDevice.id);
 
   useEffect(() => {
     // Try WebSocket connection first
@@ -17,14 +20,35 @@ export default function DashboardOverview() {
     websocket.onopen = () => {
       console.log('🔌 WebSocket connected');
       setConnectionStatus('connected');
+      
+      // Subscribe to the selected device
+      websocket.send(JSON.stringify({
+        type: 'subscribe_device',
+        deviceId: selectedDevice.id
+      }));
     };
 
     websocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         
-        if (data.type === 'initial_data' || data.type === 'dashboard_update') {
-          setDashboardData(data.data);
+        // Only process WebSocket data if it matches the current device
+        if (data.type === 'device_data' || data.type === 'device_update') {
+          if (data.deviceId === selectedDevice.id) {
+            setDashboardData(data.data);
+          }
+        } else if (data.type === 'subscription_confirmed') {
+          console.log(`✅ Subscribed to device: ${data.deviceId}`);
+          
+          // Dispatch confirmation event for sync service
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('websocketDeviceConfirmed', {
+              detail: { 
+                deviceId: data.deviceId, 
+                timestamp: new Date().toISOString() 
+              }
+            }));
+          }
         }
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
@@ -51,7 +75,7 @@ export default function DashboardOverview() {
     const fetchDashboardData = async () => {
       try {
         console.log('📡 Fetching dashboard data via API...');
-        const response = await fetch('/api/test-dashboard');
+        const response = await fetch(`/api/dashboard?device=${selectedDevice.id}`);
         const result = await response.json();
         
         if (result.success) {
@@ -82,7 +106,82 @@ export default function DashboardOverview() {
       websocket.close();
       clearInterval(pollingInterval);
     };
-  }, [connectionStatus, ws]); // Include dependencies
+  }, [selectedDevice.id]); // Only depend on device changes
+
+  // Handle device changes - force complete re-render
+  useEffect(() => {
+    if (selectedDevice.id !== deviceKey) {
+      console.log(`🔄 Device changed from ${deviceKey} to ${selectedDevice.id}, forcing complete refresh...`);
+      setDeviceKey(selectedDevice.id);
+      setDashboardData(null); // Clear existing data
+      setConnectionStatus('connecting'); // Reset connection status
+    }
+  }, [selectedDevice.id, deviceKey]);
+
+  // Listen for device change events and sync WebSocket
+  useEffect(() => {
+    const handleDeviceChange = (event: CustomEvent) => {
+      const { deviceId } = event.detail;
+      console.log(`🔌 WebSocket sync: Device changed to ${deviceId}`);
+      
+      // Reconnect WebSocket with new device
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'subscribe_device',
+          deviceId: deviceId
+        }));
+        console.log(`✅ WebSocket subscribed to device: ${deviceId}`);
+      }
+    };
+
+    // Listen for device change events
+    window.addEventListener('deviceChanged', handleDeviceChange as EventListener);
+
+    return () => {
+      window.removeEventListener('deviceChanged', handleDeviceChange as EventListener);
+    };
+  }, [ws]);
+
+  // Refetch data when device changes
+  useEffect(() => {
+    console.log('🔄 Device change effect triggered:', selectedDevice.id, selectedDevice.name);
+    
+    const fetchDashboardData = async () => {
+      try {
+        console.log('📡 Fetching dashboard data via API for device:', selectedDevice.id);
+        const response = await fetch(`/api/dashboard?device=${selectedDevice.id}`);
+        const result = await response.json();
+        
+        if (result.success) {
+          setDashboardData(result.data);
+          setConnectionStatus('connected');
+          console.log('✅ Dashboard data loaded via API for device:', selectedDevice.id);
+        } else {
+          console.error('❌ Failed to load dashboard data:', result.error);
+          setConnectionStatus('disconnected');
+        }
+      } catch (error) {
+        console.error('❌ Error fetching dashboard data:', error);
+        setConnectionStatus('disconnected');
+      }
+    };
+
+    if (selectedDevice) {
+      console.log(`🔄 Device changed to ${selectedDevice.name} (${selectedDevice.id}), forcing API data refresh...`);
+      
+      // Always fetch fresh API data when device changes to ensure correct data
+      fetchDashboardData();
+      
+      // Also try to subscribe to WebSocket if available
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log('📡 Sending WebSocket subscription for device:', selectedDevice.id);
+        ws.send(JSON.stringify({
+          type: 'subscribe_device',
+          deviceId: selectedDevice.id
+        }));
+      }
+    }
+  }, [selectedDevice.id, selectedDevice.name, ws]);
 
   const getConnectionStatusColor = () => {
     switch (connectionStatus) {
@@ -117,7 +216,7 @@ export default function DashboardOverview() {
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-500">Total Vehicles</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.totalVehicles}</p>
+                  <p className="text-2xl font-bold text-gray-900">{dashboardData?.summary?.totalVehicles || 0}</p>
                 </div>
               </div>
             </div>
@@ -131,7 +230,7 @@ export default function DashboardOverview() {
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-500">Average Speed</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.averageSpeed.toFixed(1)} km/h</p>
+                  <p className="text-2xl font-bold text-gray-900">{(dashboardData?.summary?.averageSpeed || 0).toFixed(1)} km/h</p>
                 </div>
               </div>
             </div>
@@ -145,7 +244,7 @@ export default function DashboardOverview() {
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-500">Lanes with Queues</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.lanesWithQueues}</p>
+                  <p className="text-2xl font-bold text-gray-900">{dashboardData?.summary?.lanesWithQueues || 0}</p>
                 </div>
               </div>
             </div>
@@ -159,7 +258,7 @@ export default function DashboardOverview() {
                 </div>
                 <div className="ml-4">
                   <p className="text-sm font-medium text-gray-500">Occupancy Rate</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboardData.summary.averageOccupancyRate.toFixed(1)}%</p>
+                  <p className="text-2xl font-bold text-gray-900">{(dashboardData?.summary?.averageOccupancyRate || 0).toFixed(1)}%</p>
                 </div>
               </div>
             </div>
@@ -231,7 +330,7 @@ export default function DashboardOverview() {
           )}
 
           {/* Alerts */}
-          {dashboardData.summary.alerts.length > 0 && (
+          {dashboardData?.summary?.alerts && dashboardData.summary.alerts.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
@@ -242,7 +341,7 @@ export default function DashboardOverview() {
                 <div className="ml-3">
                   <h3 className="text-sm font-medium text-red-800">Traffic Alerts</h3>
                   <div className="mt-1 text-sm text-red-700">
-                    {dashboardData.summary.alerts.map((alert, index) => (
+                    {dashboardData?.summary?.alerts?.map((alert, index) => (
                       <div key={index}>• {alert}</div>
                     ))}
                   </div>

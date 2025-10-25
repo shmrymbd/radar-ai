@@ -1,15 +1,16 @@
 import { NextResponse } from 'next/server';
 import { VehicleTracker } from '@/lib/vehicle-tracker';
 import { RedisStorage } from '@/lib/redis-storage';
+import { ObjectData } from '@/types/radar';
 
 const vehicleTracker = new VehicleTracker();
 
 export async function GET(
   request: Request,
-  { params }: { params: { targetId: string } }
+  { params }: { params: Promise<{ targetId: string }> }
 ) {
   try {
-    const { targetId } = params;
+    const { targetId } = await params;
     
     if (!targetId) {
       return NextResponse.json({
@@ -30,8 +31,39 @@ export async function GET(
       }, { status: 404 });
     }
 
+    // Convert ProcessedObjectData to ObjectData format for vehicle tracker
+    const rawObjectData: ObjectData = {
+      deviceId: objectData[0].deviceId,
+      timestamp: objectData[0].timestamp.toISOString(),
+      numEntries: objectData[0].numEntries,
+      entries: objectData[0].entries.map(entry => ({
+        targetId: entry.targetId,
+        laneNo: entry.laneNo,
+        targetType: entry.targetType,
+        color: entry.color,
+        plateNumber: entry.plateNumber,
+        xCoordM: entry.xCoordM,
+        yCoordM: entry.yCoordM,
+        speedKmh: entry.speedKmh,
+        azimuthDeg: entry.azimuthDeg,
+        longitude: entry.longitude,
+        latitude: entry.latitude,
+        imageX: entry.imageX,
+        imageY: entry.imageY,
+        vehicleLength: entry.vehicleLength,
+        vehicleWidth: entry.vehicleWidth,
+        vehicleHeight: entry.vehicleHeight,
+        parkingStatus: entry.parkingStatus,
+        xSpeed: entry.xSpeed,
+        ySpeed: entry.ySpeed,
+        acceleration: entry.acceleration
+      })),
+      packetSize: objectData[0].packetSize,
+      frameType: objectData[0].frameType
+    };
+
     // Process the latest object data
-    vehicleTracker.processObjectData(objectData[0]);
+    vehicleTracker.processObjectData(rawObjectData);
     const vehicle = vehicleTracker.getVehicle(targetId);
 
     if (!vehicle) {

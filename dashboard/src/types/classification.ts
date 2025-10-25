@@ -110,6 +110,12 @@ export interface ClassificationExport {
   generatedAt: Date;
 }
 
+export interface HistoricalClassificationData {
+  timestamp: Date;
+  metrics: ClassificationMetrics;
+  summary: ClassificationSummary;
+}
+
 // Vehicle type mapping from radar data
 export const VEHICLE_TYPE_MAP = {
   1: 'car',

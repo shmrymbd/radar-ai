@@ -148,7 +148,7 @@ export class TrafficWebSocketServer {
       if (this.clients.size > 0) {
         await this.broadcastUpdate();
       }
-    }, 5000); // Update every 5 seconds
+    }, 5000); // Update every 5 seconds - more reasonable
   }
 
   /**

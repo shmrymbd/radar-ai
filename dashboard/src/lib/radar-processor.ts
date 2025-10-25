@@ -28,7 +28,8 @@ export class RadarDataProcessor {
       numEntries: data.numEntries,
       entries: processedEntries,
       packetSize: data.packetSize,
-      summary: this.calculateObjectDataSummary(processedEntries)
+      summary: this.calculateObjectDataSummary(processedEntries),
+      frameType: '0x01'
     };
   }
 
@@ -282,6 +283,7 @@ export interface ProcessedObjectData {
   entries: ProcessedVehicleEntry[];
   packetSize: number;
   summary: ObjectDataSummary;
+  frameType: '0x01';
 }
 
 export interface ProcessedVehicleEntry extends VehicleEntry {
