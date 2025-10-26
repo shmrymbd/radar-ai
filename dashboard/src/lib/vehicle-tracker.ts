@@ -144,19 +144,26 @@ export class VehicleTracker {
    * Convert vehicle type code to name
    */
   private getVehicleTypeName(typeCode: number): string {
+    // Official ClairWav Communication Protocol V2.1 - Video Integrated Models (Section 2.2.2)
     const typeMap: Record<number, string> = {
-      1: 'motorcycle',
-      2: 'bicycle',
-      3: 'pedestrian',
-      4: 'unknown',
-      5: 'bus',
+      0: 'other',
+      1: 'bicycle',
+      2: 'motorcycle',
+      3: 'tricycle',
+      4: 'bus',
+      5: 'van',
       6: 'car',
       7: 'suv',
-      8: 'truck',
-      9: 'van'
+      8: 'large_truck',
+      9: 'medium_truck',
+      10: 'light_truck',
+      11: 'dangerous_goods',
+      12: 'engineering_vehicle',
+      13: 'pedestrian',
+      14: 'medium_bus'
     };
-    
-    return typeMap[typeCode] || 'unknown';
+
+    return typeMap[typeCode] || 'other';
   }
 
   /**

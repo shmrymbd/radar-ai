@@ -15,6 +15,7 @@ export default function DashboardLayout({ children, activeTab, onTabChange }: Da
     { id: 'overview', label: 'Overview', icon: '📊' },
     { id: 'tracking', label: 'Live Tracking', icon: '🚗' },
     { id: 'classification', label: 'Classification', icon: '🚙' },
+    { id: 'video-streaming', label: 'Video Streaming', icon: '📹' },
     { id: 'analytics', label: 'Analytics', icon: '📈' },
     { id: 'settings', label: 'Settings', icon: '⚙️' }
   ];

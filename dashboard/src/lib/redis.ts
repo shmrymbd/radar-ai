@@ -1,6 +1,6 @@
-import { createClient } from 'redis';
+import { createClient, RedisClientType } from 'redis';
 
-let redisClient: any = null;
+let redisClient: RedisClientType | null = null;
 let isConnecting = false;
 
 async function getRedisClient() {

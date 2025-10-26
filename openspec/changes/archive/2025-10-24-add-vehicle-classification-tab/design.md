@@ -55,18 +55,51 @@ PassData (0x05) → Classification Processor → Redis Storage → WebSocket →
 Vehicle Classification Tab
 ├── Real-time Classification Dashboard
 │   ├── Vehicle Type Distribution
+│   │   ├── Pie Chart (Vehicle Type %)
+│   │   ├── Bar Chart (Count by Type)
+│   │   └── Speed Distribution by Type
 │   ├── Speed Analysis by Type
+│   │   ├── Box Plot (Speed Ranges)
+│   │   ├── Violation Analysis
+│   │   └── Average Speed Trends
 │   ├── Lane Utilization
+│   │   ├── Heatmap (Lane vs Time)
+│   │   ├── Utilization Bars
+│   │   └── Occupancy Rates
 │   └── Live Counting
+│       ├── Real-time Counters
+│       ├── Rate Indicators
+│       └── Flow Metrics
 ├── Historical Analytics
 │   ├── Time-based Trends
+│   │   ├── Line Charts (Hourly/Daily)
+│   │   ├── Seasonal Patterns
+│   │   └── Trend Analysis
 │   ├── Peak Hour Analysis
+│   │   ├── Bar Charts (Peak Hours)
+│   │   ├── Heat Maps (Time vs Type)
+│   │   └── Congestion Patterns
 │   ├── Traffic Composition
+│   │   ├── Stacked Area Charts
+│   │   ├── Composition Trends
+│   │   └── Type Evolution
 │   └── Performance Metrics
+│       ├── KPI Dashboards
+│       ├── Efficiency Ratios
+│       └── Comparative Analysis
 └── Reporting & Export
     ├── Classification Reports
+    │   ├── PDF Generation
+    │   ├── Custom Templates
+    │   └── Automated Scheduling
     ├── Data Export
+    │   ├── CSV/JSON Export
+    │   ├── API Endpoints
+    │   └── Bulk Downloads
     └── Custom Analytics
+        ├── Query Builder
+        ├── Custom Charts
+        └── Advanced Filters
 ```
 
 ### Data Models
@@ -131,6 +164,90 @@ interface ClassificationMetrics {
 2. Performance optimization
 3. User acceptance testing
 4. Production deployment
+
+## Visual Mockups and Charts
+
+### Dashboard Layout Mockup
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ 🚦 Traffic Signal Control Dashboard - Vehicle Classification                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ [Overview] [Tracking] [Classification] [Analytics] [Settings]                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Device: Test Device (test)                                    Last Updated: 14:32│
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ 📊 Key Performance Indicators                                                  │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ │
+│ │Total Vehicles│ │Avg Speed   │ │Vehicle Types│ │Speed Viol.  │ │Peak Hour    │ │
+│ │    1,247    │ │  42.3 km/h │ │      5      │ │     23      │ │   17:00     │ │
+│ │   +12.3%    │ │   +2.1%    │ │   +1 new   │ │   -5.2%    │ │   +8.7%    │ │
+│ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ 📈 Vehicle Type Distribution (Last 24 Hours)                                   │
+│ ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│ │                                                                             │ │
+│ │  🚗 Cars: 65.2% (812 vehicles)    ████████████████████████████████████████ │ │
+│ │  🚙 SUVs: 28.4% (354 vehicles)     ████████████████████████████████████     │ │
+│ │  🚛 Trucks: 4.8% (60 vehicles)    █████████████████████████████            │ │
+│ │  🏍️ Motorcycles: 1.6% (21 vehicles) █████████████████████                 │ │
+│ │                                                                             │ │
+│ └─────────────────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ 🛣️ Lane Utilization Analysis                                                   │
+│ ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│ │ Lane 11 (Northbound): ████████████████████████████████████████ 78.5% (312) │ │
+│ │ Lane 12 (Northbound): ████████████████████████████████████████████ 82.1%   │ │
+│ │ Lane 31 (Southbound): ████████████████████████████████████████ 71.3% (284) │ │
+│ │ Lane 32 (Southbound): ████████████████████████████████████████████ 85.2%   │ │
+│ └─────────────────────────────────────────────────────────────────────────────┘ │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ ⏰ Time-based Traffic Patterns                                                 │
+│ ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│ │ Hourly Distribution (Last 24h)                                              │ │
+│ │ 06:00 ████ 12:00 ████████████████████████████████████████████████████████  │ │
+│ │ 07:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 08:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 09:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 10:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 11:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 12:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 13:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 14:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 15:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 16:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 17:00 ████████████████████████████████████████████████████████████████████ │ │
+│ │ 18:00 ████████████████████████████████████████████████████████████████████ │ │
+│ └─────────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Chart Types and Visualizations
+
+#### 1. Vehicle Type Distribution
+- **Pie Chart**: Circular visualization showing percentage breakdown
+- **Bar Chart**: Horizontal bars comparing vehicle counts
+- **Donut Chart**: Enhanced pie chart with center metrics
+
+#### 2. Speed Analysis
+- **Box Plot**: Statistical distribution of speeds by vehicle type
+- **Violation Chart**: Speed limit violations by type and time
+- **Speed Heatmap**: Color-coded speed patterns across lanes and time
+
+#### 3. Lane Utilization
+- **Gauge Charts**: Circular progress indicators for lane occupancy
+- **Heatmap**: 2D visualization of lane usage over time
+- **Stacked Bar Chart**: Lane utilization by vehicle type
+
+#### 4. Time-based Analytics
+- **Line Charts**: Traffic trends over hours, days, weeks
+- **Area Charts**: Cumulative traffic patterns
+- **Multi-line Charts**: Comparative analysis across vehicle types
+
+### Interactive Features
+- **Hover Tooltips**: Detailed information on chart elements
+- **Click to Filter**: Interactive filtering by clicking chart elements
+- **Zoom and Pan**: Detailed view of time-series data
+- **Export Options**: Save charts as images or PDFs
 
 ## Open Questions
 

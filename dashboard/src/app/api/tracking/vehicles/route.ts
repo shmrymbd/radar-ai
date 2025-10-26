@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { VehicleTracker } from '@/lib/vehicle-tracker';
 import { RedisStorage } from '@/lib/redis-storage';
 import { ObjectData } from '@/types/radar';
+import { withApiProtection } from '@/lib/middleware';
 
 const vehicleTracker = new VehicleTracker();
 
@@ -9,6 +10,10 @@ const vehicleTracker = new VehicleTracker();
 const deviceVehicleStates = new Map<string, Map<string, any>>();
 
 export async function GET(request: NextRequest) {
+  // Apply authentication and rate limiting
+  const protection = withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const deviceId = searchParams.get('device') || 'Radar04'; // Default to Radar04 for backward compatibility
@@ -20,21 +25,23 @@ export async function GET(request: NextRequest) {
     
     // Get device-specific object data from Redis
     let objectData = await redisStorage.getDeviceObjectData(deviceId, 1);
-    
-    // Use Redis data for real devices (like Radar04), generate data for test devices
-    if (deviceId === 'test') {
-      // Generate dynamic data for test devices
-      objectData = [await generateDynamicVehicleData(deviceId)];
-    } else if (objectData.length === 0) {
-      // For real devices with no Redis data, return empty data
-      return NextResponse.json({
-        success: true,
-        data: [],
-        count: 0,
-        device: deviceId,
-        timestamp: new Date().toISOString(),
-        message: 'No radar data available for this device'
-      });
+
+    // If no Redis data available, try to generate dynamic data for testing
+    if (objectData.length === 0) {
+      // Generate dynamic data for test devices when no Redis data exists
+      if (deviceId === 'test') {
+        objectData = [await generateDynamicVehicleData(deviceId)];
+      } else {
+        // For real devices with no Redis data, return empty data
+        return NextResponse.json({
+          success: true,
+          data: [],
+          count: 0,
+          device: deviceId,
+          timestamp: new Date().toISOString(),
+          message: 'No radar data available for this device'
+        });
+      }
     }
 
     // Convert ProcessedObjectData to ObjectData format for vehicle tracker
@@ -176,7 +183,7 @@ async function generateDynamicVehicleData(deviceId: string): Promise<any> {
 function initializeVehicleStates(deviceId: string, vehicleStates: Map<string, any>): void {
   // Different lane configurations for different devices
   const lanes = deviceId === 'test' ? [11, 12, 13] : [11, 12, 31, 32];
-  const vehicleTypes = ['car', 'motorcycle', 'suv', 'truck'];
+  const vehicleTypes = ['car', 'van', 'suv', 'truck', 'motorcycle', 'bus', 'large_truck'];
   
   for (let i = 0; i < 8; i++) {
     const targetId = `vehicle_${deviceId}_${Date.now()}_${i}`;
@@ -245,8 +252,25 @@ function getLaneXPosition(laneNo: number): number {
 }
 
 function getVehicleTypeCode(vehicleType: string): number {
-  const codes: Record<string, number> = { 'car': 6, 'motorcycle': 1, 'suv': 7, 'truck': 8 };
-  return codes[vehicleType] || 6;
+  // Official ClairWav Communication Protocol V2.1 - Video Integrated Models (Section 2.2.2)
+  const codes: Record<string, number> = {
+    'other': 0,
+    'bicycle': 1,
+    'motorcycle': 2,
+    'tricycle': 3,
+    'bus': 4,
+    'van': 5,
+    'car': 6,
+    'suv': 7,
+    'large_truck': 8,
+    'medium_truck': 9,
+    'light_truck': 10,
+    'dangerous_goods': 11,
+    'engineering_vehicle': 12,
+    'pedestrian': 13,
+    'medium_bus': 14
+  };
+  return codes[vehicleType] || 0;
 }
 
 function generatePlateNumber(): string {

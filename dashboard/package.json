@@ -7,15 +7,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "websocket": "node websocket-server-fixed.js",
-    "tracking": "npx ts-node src/lib/tracking-websocket-server.ts",
-    "dev:full": "concurrently \"npm run dev\" \"npm run websocket\" \"npm run tracking\""
+    "websocket": "npx ts-node --project tsconfig.node.json src/lib/unified-websocket-server.ts",
+    "dev:full": "concurrently \"npm run dev\" \"npm run websocket\"",
+    "db:indexes": "npx ts-node --project tsconfig.node.json src/lib/mongodb-indexes.ts",
+    "outdated": "npm outdated",
+    "audit": "npm audit",
+    "audit:fix": "npm audit fix"
   },
   "dependencies": {
     "@types/ws": "^8.18.1",
     "autoprefixer": "^10.4.21",
+    "hls.js": "^1.6.13",
     "mongodb": "^6.20.0",
-    "next": "16.0.0",
+    "next": "15.1.8",
     "node-fetch": "^3.3.2",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -24,14 +28,15 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.2.1",
     "eslint": "^9",
-    "eslint-config-next": "16.0.0",
+    "eslint-config-next": "15.1.8",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5"
   }
 }

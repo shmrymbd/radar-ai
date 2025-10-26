@@ -116,21 +116,24 @@ export interface HistoricalClassificationData {
   summary: ClassificationSummary;
 }
 
-// Vehicle type mapping from radar data
+// Vehicle type mapping from ClairWav Communication Protocol V2.1 (Section 2.2.2)
+// For Video Integrated Radar Models (ClairWav-T24SC/T24LC/T80LC)
 export const VEHICLE_TYPE_MAP = {
-  1: 'car',
-  2: 'van', 
-  3: 'suv',
-  4: 'truck',
-  5: 'bicycle',
-  6: 'motorcycle',
-  7: 'bus',
+  0: 'other',
+  1: 'bicycle',
+  2: 'motorcycle',
+  3: 'tricycle',
+  4: 'bus',
+  5: 'van',
+  6: 'car',
+  7: 'suv',
   8: 'large_truck',
   9: 'medium_truck',
   10: 'light_truck',
   11: 'dangerous_goods',
   12: 'engineering_vehicle',
-  13: 'pedestrian'
+  13: 'pedestrian',
+  14: 'medium_bus'
 } as const;
 
 export type VehicleType = keyof typeof VEHICLE_TYPE_MAP;

@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RedisStorage } from '@/lib/redis-storage';
+import { withApiProtection } from '@/lib/middleware';
 
 export async function GET(request: NextRequest) {
+  // Apply authentication and rate limiting
+  const protection = withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const deviceId = searchParams.get('device') || 'Radar04'; // Default to Radar04 for backward compatibility
@@ -13,12 +18,15 @@ export async function GET(request: NextRequest) {
     
     // Get device-specific dashboard summary
     let dashboardSummary = await redisStorage.getDeviceDashboardSummary(deviceId);
-    
+
     // For test device or when no Redis data, generate dynamic summary
     if (deviceId === 'test' || !dashboardSummary) {
       dashboardSummary = await generateDynamicDashboardSummary(deviceId);
+    } else {
+      // For real devices with Redis data, enrich laneStatus with vehicle type breakdown
+      dashboardSummary = await enrichDashboardWithVehicleBreakdown(dashboardSummary, deviceId);
     }
-    
+
     return NextResponse.json({
       success: true,
       data: dashboardSummary,
@@ -48,14 +56,22 @@ async function generateDynamicDashboardSummary(deviceId: string) {
   
   if (!vehicleData.success || !vehicleData.data) {
     return {
-      totalVehicles: 0,
-      averageSpeed: 0,
-      lanesWithQueues: 0,
-      totalVehiclesOnline: 0,
-      averageOccupancyRate: 0,
-      totalFlowRate: 0,
-      trafficDensity: 0,
-      alerts: []
+      timestamp: new Date(),
+      objectData: null,
+      laneStatus: null,
+      recentPassEvents: [],
+      trafficData: null,
+      regionData: null,
+      summary: {
+        totalVehicles: 0,
+        averageSpeed: 0,
+        lanesWithQueues: 0,
+        totalVehiclesOnline: 0,
+        averageOccupancyRate: 0,
+        totalFlowRate: 0,
+        trafficDensity: 0,
+        alerts: []
+      }
     };
   }
   
@@ -63,75 +79,98 @@ async function generateDynamicDashboardSummary(deviceId: string) {
   const totalVehicles = vehicles.length;
   const averageSpeed = totalVehicles > 0 ? vehicles.reduce((sum: number, v: any) => sum + v.position.speed, 0) / totalVehicles : 0;
   const totalVehiclesOnline = vehicles.filter((v: any) => v.isVisible).length;
-  
+
   // Calculate traffic density (vehicles per km)
   const detectionZoneLength = 0.3; // 300m in km
   const trafficDensity = totalVehicles / detectionZoneLength;
-  
+
   // Calculate occupancy rate
   const averageOccupancyRate = totalVehiclesOnline > 0 ? (totalVehiclesOnline / 10) * 100 : 0; // Assume max 10 vehicles
-  
+
   // Generate alerts based on conditions
   const alerts = [];
   if (averageSpeed < 10) alerts.push('Low speed detected');
   if (trafficDensity > 50) alerts.push('High traffic density');
   if (totalVehiclesOnline > 8) alerts.push('High vehicle count');
-  
+
+  // Calculate vehicle type breakdown per lane
+  const laneNumbers = [11, 12, 31, 32];
+  const laneVehicleTypeBreakdown = new Map<number, Record<string, number>>();
+
+  // Initialize breakdown for each lane
+  laneNumbers.forEach(laneNo => {
+    laneVehicleTypeBreakdown.set(laneNo, {});
+  });
+
+  // Group vehicles by lane and count by type
+  vehicles.forEach((vehicle: any) => {
+    const laneNo = vehicle.position.laneNo; // Use laneNo not lane
+    const vehicleType = vehicle.position.vehicleType || 'other';
+
+    if (laneVehicleTypeBreakdown.has(laneNo)) {
+      const breakdown = laneVehicleTypeBreakdown.get(laneNo)!;
+      breakdown[vehicleType] = (breakdown[vehicleType] || 0) + 1;
+    }
+  });
+
+  // Calculate per-lane statistics
+  const laneEntries = laneNumbers.map((laneNo, index) => {
+    const laneVehicles = vehicles.filter((v: any) => v.position.laneNo === laneNo); // Use laneNo not lane
+    const vehicleCount = laneVehicles.length;
+    const laneAvgSpeed = vehicleCount > 0 ? laneVehicles.reduce((sum: number, v: any) => sum + v.position.speed, 0) / vehicleCount : 0;
+    const vehicleTypeBreakdown = laneVehicleTypeBreakdown.get(laneNo) || {};
+
+    return {
+      entryIndex: index,
+      lane: {
+        number: laneNo,
+        description: laneNo <= 13 ? `Upstream Lane ${laneNo - 10} (Inner to Outer)` : `Downstream Lane ${laneNo - 30} (Inner to Outer)`
+      },
+      queue: {
+        length: vehicleCount * 8, // Estimate 8m per vehicle
+        head: 0,
+        tail: 0,
+        vehicleCount: vehicleCount,
+        exceedsLimit: vehicleCount > 5,
+        overflow: false
+      },
+      vehicleSpacing: vehicleCount > 0 ? (300 / vehicleCount) : 0,
+      vehiclesOnline: vehicleCount,
+      vehicleTypeBreakdown: vehicleTypeBreakdown,
+      speeds: {
+        average: laneAvgSpeed,
+        percentile85: laneAvgSpeed * 0.85,
+        leadVehicle: laneAvgSpeed * 1.1,
+        trailingVehicle: laneAvgSpeed * 0.9
+      },
+      positions: {
+        // Use deterministic calculation based on lane and vehicle count
+        leadVehicle: (laneNo * 10 + vehicleCount * 5) % 50 + 10,
+        trailingVehicle: (laneNo * 15 + vehicleCount * 3) % 60 + 20
+      },
+      spaceOccupancyRate: (vehicleCount / 10) * 100,
+      reserved: 0
+    };
+  });
+
   // Generate realistic lane status data
   const laneStatus = {
     frameType: '0x04',
     frameTypeName: 'Lane Status Data',
     deviceId: deviceId,
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(),
     numEntries: 4,
     entriesDecoded: 4,
-    entries: [
-      {
-        entryIndex: 0,
-        lane: { number: 11, description: 'Upstream Lane 1 (Inner to Outer)' },
-        queue: { length: Math.random() * 50 + 10, head: 0, tail: 0, vehicleCount: Math.floor(Math.random() * 3) + 1, exceedsLimit: false, overflow: false },
-        vehicleSpacing: Math.random() * 20 + 5,
-        vehiclesOnline: Math.floor(Math.random() * 5) + 1,
-        speeds: { average: Math.random() * 30 + 20, percentile85: Math.random() * 25 + 15, leadVehicle: Math.random() * 40 + 20, trailingVehicle: Math.random() * 35 + 15 },
-        positions: { leadVehicle: Math.random() * 50 + 10, trailingVehicle: Math.random() * 60 + 20 },
-        spaceOccupancyRate: Math.random() * 30 + 10,
-        reserved: 0
-      },
-      {
-        entryIndex: 1,
-        lane: { number: 12, description: 'Upstream Lane 2 (Inner to Outer)' },
-        queue: { length: Math.random() * 40 + 5, head: 0, tail: 0, vehicleCount: Math.floor(Math.random() * 4) + 1, exceedsLimit: false, overflow: false },
-        vehicleSpacing: Math.random() * 25 + 5,
-        vehiclesOnline: Math.floor(Math.random() * 6) + 1,
-        speeds: { average: Math.random() * 35 + 25, percentile85: Math.random() * 30 + 20, leadVehicle: Math.random() * 45 + 25, trailingVehicle: Math.random() * 40 + 20 },
-        positions: { leadVehicle: Math.random() * 45 + 15, trailingVehicle: Math.random() * 55 + 25 },
-        spaceOccupancyRate: Math.random() * 40 + 15,
-        reserved: 0
-      },
-      {
-        entryIndex: 2,
-        lane: { number: 31, description: 'Downstream Lane 1 (Inner to Outer)' },
-        queue: { length: Math.random() * 30 + 5, head: 0, tail: 0, vehicleCount: Math.floor(Math.random() * 3) + 1, exceedsLimit: false, overflow: false },
-        vehicleSpacing: Math.random() * 30 + 5,
-        vehiclesOnline: Math.floor(Math.random() * 4) + 1,
-        speeds: { average: Math.random() * 40 + 30, percentile85: Math.random() * 35 + 25, leadVehicle: Math.random() * 50 + 30, trailingVehicle: Math.random() * 45 + 25 },
-        positions: { leadVehicle: Math.random() * 40 + 20, trailingVehicle: Math.random() * 50 + 30 },
-        spaceOccupancyRate: Math.random() * 35 + 10,
-        reserved: 0
-      },
-      {
-        entryIndex: 3,
-        lane: { number: 32, description: 'Downstream Lane 2 (Inner to Outer)' },
-        queue: { length: Math.random() * 35 + 5, head: 0, tail: 0, vehicleCount: Math.floor(Math.random() * 3) + 1, exceedsLimit: false, overflow: false },
-        vehicleSpacing: Math.random() * 25 + 5,
-        vehiclesOnline: Math.floor(Math.random() * 5) + 1,
-        speeds: { average: Math.random() * 45 + 35, percentile85: Math.random() * 40 + 30, leadVehicle: Math.random() * 55 + 35, trailingVehicle: Math.random() * 50 + 30 },
-        positions: { leadVehicle: Math.random() * 45 + 25, trailingVehicle: Math.random() * 55 + 35 },
-        spaceOccupancyRate: Math.random() * 45 + 15,
-        reserved: 0
-      }
-    ],
-    packetSize: 170
+    entries: laneEntries,
+    packetSize: 170,
+    summary: {
+      totalLanes: 4,
+      lanesWithQueues: laneEntries.filter(e => e.queue.length > 20).length,
+      averageQueueLength: laneEntries.reduce((sum, e) => sum + e.queue.length, 0) / laneEntries.length,
+      totalVehiclesOnline: totalVehiclesOnline,
+      averageOccupancyRate: Math.round(averageOccupancyRate * 100) / 100,
+      alerts: alerts
+    }
   };
 
   // Generate realistic recent pass events
@@ -156,7 +195,7 @@ async function generateDynamicDashboardSummary(deviceId: string) {
   return {
     timestamp: new Date(),
     objectData: null,
-    laneStatus: laneStatus,
+    laneStatus: laneStatus, // Include lane status with vehicle type breakdown
     recentPassEvents: recentPassEvents,
     trafficData: null,
     regionData: null,
@@ -171,4 +210,54 @@ async function generateDynamicDashboardSummary(deviceId: string) {
       alerts
     }
   };
+}
+
+/**
+ * Enrich dashboard summary with vehicle type breakdown for all devices
+ */
+async function enrichDashboardWithVehicleBreakdown(dashboardSummary: any, deviceId: string): Promise<any> {
+  // Fetch current vehicle data to calculate vehicle type breakdown
+  const vehicleResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/tracking/vehicles?device=${deviceId}`);
+  const vehicleData = await vehicleResponse.json();
+
+  if (!vehicleData.success || !vehicleData.data || !dashboardSummary.laneStatus) {
+    return dashboardSummary;
+  }
+
+  const vehicles = vehicleData.data;
+
+  // Get lane numbers from existing laneStatus
+  const laneNumbers = dashboardSummary.laneStatus.entries.map((entry: any) => entry.lane?.number).filter(Boolean);
+
+  // Calculate vehicle type breakdown per lane
+  const laneVehicleTypeBreakdown = new Map<number, Record<string, number>>();
+
+  // Initialize breakdown for each lane
+  laneNumbers.forEach((laneNo: number) => {
+    laneVehicleTypeBreakdown.set(laneNo, {});
+  });
+
+  // Group vehicles by lane and count by type
+  vehicles.forEach((vehicle: any) => {
+    const laneNo = vehicle.position.laneNo;
+    const vehicleType = vehicle.position.vehicleType || 'other';
+
+    if (laneVehicleTypeBreakdown.has(laneNo)) {
+      const breakdown = laneVehicleTypeBreakdown.get(laneNo)!;
+      breakdown[vehicleType] = (breakdown[vehicleType] || 0) + 1;
+    }
+  });
+
+  // Enrich each lane entry with vehicle type breakdown
+  dashboardSummary.laneStatus.entries = dashboardSummary.laneStatus.entries.map((entry: any) => {
+    const laneNo = entry.lane?.number;
+    const vehicleTypeBreakdown = laneVehicleTypeBreakdown.get(laneNo) || {};
+
+    return {
+      ...entry,
+      vehicleTypeBreakdown
+    };
+  });
+
+  return dashboardSummary;
 }

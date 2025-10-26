@@ -1,112 +1,90 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ClassificationProcessor } from '@/lib/classification-processor';
-import { RadarDataProcessor } from '@/lib/radar-processor';
 import { RedisStorage } from '@/lib/redis-storage';
 
 const classificationProcessor = ClassificationProcessor.getInstance();
-const radarProcessor = RadarDataProcessor.getInstance();
 const redisStorage = RedisStorage.getInstance();
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    console.log('🔄 Processing real radar data for classification...');
+    console.log('📡 Processing real radar data from Redis...');
     
-    // Get recent pass events from Redis
-    const recentPassEvents = await redisStorage.getLatestPassData(20);
+    // Get real pass data from Redis
+    const realPassData = await redisStorage.getLatestPassData(50); // Get last 50 entries
     
-    if (recentPassEvents.length === 0) {
+    if (realPassData.length === 0) {
       return NextResponse.json({
         success: false,
-        message: 'No recent pass events found in Redis',
-        data: { processedCount: 0 }
-      });
+        error: 'No real radar data available in Redis',
+        message: 'Please ensure radar data is being streamed to Redis'
+      }, { status: 404 });
     }
-
-    console.log(`📊 Found ${recentPassEvents.length} recent pass events`);
     
-    // Process each pass event through the radar processor
-    // This will automatically feed data to the classification processor
+    console.log(`📊 Found ${realPassData.length} real pass data entries`);
+    
+    // Process each real data entry for classification
     let processedCount = 0;
-    for (const passEvent of recentPassEvents) {
+    for (const data of realPassData) {
       try {
-        // Convert the pass event to the format expected by radar processor
-        const passData = {
-          frameType: '0x05' as const,
-          deviceId: passEvent.deviceId,
-          timestamp: passEvent.timestamp.toISOString(),
-          laneNumber: passEvent.laneNumber,
-          crossSectionPosition: passEvent.crossSectionPosition,
-          crossSectionSpeed: passEvent.crossSectionSpeed,
-          headwayTime: passEvent.headwayTime,
-          passingTime: passEvent.timestamp.toISOString(),
-          occupancyDuration: passEvent.occupancyDuration,
-          occupancyStatus: passEvent.occupancyStatus === 'entering' ? 1 : 0,
-          vehicleType: getVehicleTypeCode(passEvent.vehicleType)
-        };
-
-        // Process through radar processor (this will automatically call classification processor)
-        radarProcessor.processPassData(passData);
-        processedCount++;
+        // Convert vehicle type name to string for classification
+        let vehicleType = data.vehicleType;
+        if (typeof vehicleType === 'string') {
+          // Map string vehicle types to classification strings
+          const typeMap: { [key: string]: string } = {
+            'car': 'car',
+            'van': 'van',
+            'suv': 'suv',
+            'truck': 'truck',
+            'motorcycle': 'motorcycle',
+            'bus': 'van', // Map bus to van for classification
+            'unknown': 'car' // Default to car for unknown types
+          };
+          vehicleType = typeMap[vehicleType.toLowerCase()] || 'car';
+        }
         
-        console.log(`✅ Processed vehicle: ${passEvent.vehicleType} at ${passEvent.timestamp.toISOString()}`);
+        // Create processed data with proper vehicle type and device ID
+        const processedData = {
+          ...data,
+          vehicleType: vehicleType,
+          deviceId: 'test' // Use 'test' device ID for classification processor
+        };
+        
+        classificationProcessor.processPassDataForClassification(processedData, 'test');
+        processedCount++;
       } catch (error) {
-        console.error(`❌ Error processing pass event:`, error);
+        console.error(`Error processing entry:`, error);
+        // Continue processing other entries
       }
     }
-
-    // Get updated classification metrics
-    const metrics = classificationProcessor.getClassificationMetrics();
-    const summary = classificationProcessor.getClassificationSummary();
-
-    console.log(`🎯 Classification data updated: ${metrics.totalVehicles} total vehicles`);
-
+    
+    console.log(`✅ Successfully processed ${processedCount} real radar data entries`);
+    
+    // Get updated metrics
+    const metrics = classificationProcessor.getClassificationMetrics('test');
+    const summary = classificationProcessor.getClassificationSummary('test');
+    
     return NextResponse.json({
       success: true,
-      message: `Processed ${processedCount} real pass events`,
+      message: `Successfully processed ${processedCount} real radar data entries`,
       data: {
         processedCount,
-        totalVehicles: metrics.totalVehicles,
-        vehicleTypes: metrics.vehicleTypes.map(vt => vt.vehicleType),
-        timeRange: 'Real radar data',
-        metrics: {
-          totalVehicles: metrics.totalVehicles,
-          uniqueVehicleTypes: summary.uniqueVehicleTypes,
-          averageSpeed: summary.averageSpeed
-        }
+        totalAvailable: realPassData.length,
+        metrics,
+        summary,
+        sampleData: realPassData.slice(0, 3) // Show first 3 entries as sample
       },
       timestamp: new Date().toISOString()
     });
     
-  } catch (error: any) {
-    console.error('❌ Error processing real data:', error);
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to process real radar data',
-      details: error.message,
-      timestamp: new Date().toISOString()
-    }, { status: 500 });
+  } catch (error) {
+    console.error('❌ Error processing real radar data:', error);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: 'Failed to process real radar data',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
-}
-
-// Helper function to convert vehicle type names to numeric codes
-function getVehicleTypeCode(vehicleType: string): number {
-  const typeMap: { [key: string]: number } = {
-    'car': 1,
-    'van': 2,
-    'suv': 3,
-    'truck': 4,
-    'bicycle': 5,
-    'motorcycle': 6,
-    'bus': 7,
-    'large_truck': 8,
-    'medium_truck': 9,
-    'light_truck': 10,
-    'dangerous_goods': 11,
-    'engineering_vehicle': 12,
-    'pedestrian': 13
-  };
-  
-  // Handle case variations
-  const normalizedType = vehicleType.toLowerCase().replace(/\s+/g, '_');
-  return typeMap[normalizedType] || 1; // Default to car if unknown
 }

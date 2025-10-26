@@ -1,20 +1,26 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ClassificationProcessor } from '@/lib/classification-processor';
+import { withApiProtection } from '@/lib/middleware';
 
 const classificationProcessor = ClassificationProcessor.getInstance();
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  // Apply authentication and rate limiting
+  const protection = withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const { searchParams } = new URL(request.url);
+    const deviceId = searchParams.get('deviceId') || 'test';
     const startTime = searchParams.get('startTime');
     const endTime = searchParams.get('endTime');
     const vehicleTypes = searchParams.get('vehicleTypes')?.split(',');
     const lanes = searchParams.get('lanes')?.split(',').map(Number);
     const aggregationPeriod = searchParams.get('aggregationPeriod') as '1min' | '15min' | '1hour' | 'daily' || '1hour';
 
-    // Get classification metrics
-    const metrics = classificationProcessor.getClassificationMetrics();
-    const summary = classificationProcessor.getClassificationSummary();
+    // Get device-scoped classification metrics
+    const metrics = classificationProcessor.getClassificationMetrics(deviceId);
+    const summary = classificationProcessor.getClassificationSummary(deviceId);
 
     // Apply filters if provided
     let filteredMetrics = metrics;
@@ -28,7 +34,7 @@ export async function GET(request: Request) {
         } : undefined,
         aggregationPeriod
       };
-      filteredMetrics = classificationProcessor.filterClassificationData(filters);
+      filteredMetrics = classificationProcessor.filterClassificationData(deviceId, filters);
     }
 
     return NextResponse.json({

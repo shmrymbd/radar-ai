@@ -1,0 +1,36 @@
+# Claude Code - Exclude from context
+
+# Video streaming output (large files)
+dashboard/hls-output/
+dashboard/video-storage/
+
+# Node modules
+**/node_modules/
+
+# Build outputs
+**/.next/
+**/out/
+**/build/
+**/dist/
+
+# Dependencies
+**/.pnp/
+**/.yarn/
+
+# Test coverage
+**/coverage/
+
+# Logs
+**/*.log
+
+# OS files
+**/.DS_Store
+
+# Environment files
+**/.env*
+!**/.env.example
+
+# Lock files (too large)
+**/package-lock.json
+**/yarn.lock
+**/pnpm-lock.yaml

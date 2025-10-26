@@ -48,11 +48,11 @@ export class RedisStorage {
       const value = JSON.stringify(data);
       
       // Store with TTL of 1 hour (3600 seconds)
-      await redisClient.lpush(key, value);
+      await redisClient.lPush(key, value);
       await redisClient.expire(key, 3600);
       
       // Keep only last 1000 entries
-      await redisClient.ltrim(key, 0, 999);
+      await redisClient.lTrim(key, 0, 999);
       
       console.log(`Stored Object Data: ${data.numEntries} vehicles`);
     } catch (error) {
@@ -71,11 +71,11 @@ export class RedisStorage {
       const value = JSON.stringify(data);
       
       // Store with TTL of 1 hour (3600 seconds)
-      await redisClient.lpush(key, value);
+      await redisClient.lPush(key, value);
       await redisClient.expire(key, 3600);
-      
+
       // Keep only the latest 100 entries
-      await redisClient.ltrim(key, 0, 99);
+      await redisClient.lTrim(key, 0, 99);
       
       console.log(`Stored raw Object Data: ${data.numEntries} vehicles`);
     } catch (error) {
@@ -94,11 +94,11 @@ export class RedisStorage {
       const value = JSON.stringify(data);
       
       // Store with TTL of 1 hour
-      await client.lpush(key, value);
+      await client.lPush(key, value);
       await client.expire(key, 3600);
       
       // Keep only last 1000 entries
-      await client.ltrim(key, 0, 999);
+      await client.lTrim(key, 0, 999);
       
       console.log(`Stored Lane Status: ${data.numEntries} lanes`);
     } catch (error) {
@@ -117,11 +117,11 @@ export class RedisStorage {
       
       // Store with TTL of 2 hours (7200 seconds) - events are less frequent
       const client = await getRedisClient();
-      await client.lpush(key, value);
+      await client.lPush(key, value);
       await client.expire(key, 7200);
       
       // Keep only last 500 entries
-      await client.ltrim(key, 0, 499);
+      await client.lTrim(key, 0, 499);
       
       console.log(`Stored Pass Data: Lane ${data.laneNumber}`);
     } catch (error) {
@@ -140,11 +140,11 @@ export class RedisStorage {
       
       // Store with TTL of 24 hours (86400 seconds) - statistical data
       const client = await getRedisClient();
-      await client.lpush(key, value);
+      await client.lPush(key, value);
       await client.expire(key, 86400);
       
       // Keep only last 100 entries
-      await client.ltrim(key, 0, 99);
+      await client.lTrim(key, 0, 99);
       
       console.log(`Stored Traffic Data: Lane ${data.targetLane}`);
     } catch (error) {
@@ -163,11 +163,11 @@ export class RedisStorage {
       
       // Store with TTL of 24 hours
       const client = await getRedisClient();
-      await client.lpush(key, value);
+      await client.lPush(key, value);
       await client.expire(key, 86400);
       
       // Keep only last 100 entries
-      await client.ltrim(key, 0, 99);
+      await client.lTrim(key, 0, 99);
       
       console.log(`Stored Region Data: Direction ${data.direction}`);
     } catch (error) {

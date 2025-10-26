@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useDevice } from '@/contexts/DeviceContext';
-import { VehiclePosition, VehicleState, VehicleRenderOptions, VEHICLE_COLORS, CANVAS_CONFIG, DETECTION_ZONE, LANE_BOUNDARIES } from '@/types/tracking';
+import { useUnifiedWebSocket } from '@/hooks/useUnifiedWebSocket';
+import { VehiclePosition, VehicleState, VehicleRenderOptions, VEHICLE_COLORS, CANVAS_CONFIG, DETECTION_ZONE } from '@/types/tracking';
 
 interface LiveTrackingProps {
   className?: string;
@@ -10,6 +11,7 @@ interface LiveTrackingProps {
 
 export default function LiveTracking({ className = '' }: LiveTrackingProps) {
   const { selectedDevice } = useDevice();
+  const { ws, connectionStatus, subscribeToChannel } = useUnifiedWebSocket();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [vehicles, setVehicles] = useState<VehicleState[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleState | null>(null);
@@ -23,7 +25,6 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
   });
   const [selectedScenario, setSelectedScenario] = useState<number>(0);
   const [showCoordinateSystem, setShowCoordinateSystem] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   
   // Heat map state for trail-based road visualization
   const [globalTrailHistory, setGlobalTrailHistory] = useState<Map<string, number>>(new Map());
@@ -79,6 +80,44 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
       g: parseInt(result[2], 16),
       b: parseInt(result[3], 16)
     } : null;
+  }, []);
+
+  // Generate consistent color for vehicle ID
+  const getVehicleColor = useCallback((targetId: string): string => {
+    // Predefined vibrant color palette for better visibility
+    const colorPalette = [
+      '#3B82F6', // Blue
+      '#EF4444', // Red
+      '#10B981', // Green
+      '#F59E0B', // Orange
+      '#8B5CF6', // Purple
+      '#06B6D4', // Cyan
+      '#EC4899', // Pink
+      '#F97316', // Orange-red
+      '#14B8A6', // Teal
+      '#A855F7', // Violet
+      '#84CC16', // Lime
+      '#F43F5E', // Rose
+      '#22D3EE', // Sky
+      '#FBBF24', // Amber
+      '#6366F1', // Indigo
+      '#FB923C', // Orange-light
+      '#4ADE80', // Green-light
+      '#C026D3', // Fuchsia
+      '#2DD4BF', // Teal-light
+      '#FACC15', // Yellow
+    ];
+
+    // Generate hash from targetId for consistent color assignment
+    let hash = 0;
+    for (let i = 0; i < targetId.length; i++) {
+      hash = targetId.charCodeAt(i) + ((hash << 5) - hash);
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+
+    // Use hash to select color from palette
+    const colorIndex = Math.abs(hash) % colorPalette.length;
+    return colorPalette[colorIndex];
   }, []);
 
   // Analyze radar data to create lane scenarios based on actual radar lane assignments
@@ -360,7 +399,6 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
   }, [radarToVisual]);
 
   const drawLaneBoundaries = useCallback((ctx: CanvasRenderingContext2D) => {
-    const roadLength = DETECTION_ZONE.maxY - DETECTION_ZONE.minY;
     const currentLanes = getCurrentScenarioLanes();
     
     // Draw lane boundary lines (white solid)
@@ -409,7 +447,7 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     ctx.strokeStyle = '#DC2626';
     ctx.lineWidth = 2;
     ctx.setLineDash([]);
-    
+
     // X-axis (horizontal)
     const xStart = radarToVisual(-15, 0);
     const xEnd = radarToVisual(15, 0);
@@ -417,21 +455,22 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     ctx.moveTo(xStart.x, xStart.y);
     ctx.lineTo(xEnd.x, xEnd.y);
     ctx.stroke();
-    
-    // Y-axis (vertical)
-    const yStart = radarToVisual(0, 0);
-    const yEnd = radarToVisual(0, 300);
-    ctx.beginPath();
-    ctx.moveTo(yStart.x, yStart.y);
-    ctx.lineTo(yEnd.x, yEnd.y);
-    ctx.stroke();
-    
+
+    // Y-axis (vertical) - REMOVED to eliminate red vertical line
+    // const yStart = radarToVisual(0, 0);
+    // const yEnd = radarToVisual(0, 300);
+    // ctx.beginPath();
+    // ctx.moveTo(yStart.x, yStart.y);
+    // ctx.lineTo(yEnd.x, yEnd.y);
+    // ctx.stroke();
+
     // Draw origin marker
+    const yStart = radarToVisual(0, 0);
     ctx.fillStyle = '#DC2626';
     ctx.beginPath();
     ctx.arc(yStart.x, yStart.y, 4, 0, 2 * Math.PI);
     ctx.fill();
-    
+
     // Draw labels
     ctx.fillStyle = '#DC2626';
     ctx.font = '12px system-ui';
@@ -614,10 +653,11 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
   }, [globalTrailHistory, radarToVisual]);
 
   const drawVehicle = useCallback((ctx: CanvasRenderingContext2D, vehicle: VehicleState, pos: { x: number; y: number }, size: { width: number; height: number }) => {
-    const color = VEHICLE_COLORS[vehicle.position.vehicleType as keyof typeof VEHICLE_COLORS] || VEHICLE_COLORS.unknown;
+    // Use consistent color based on vehicle ID instead of vehicle type
+    const color = getVehicleColor(vehicle.targetId);
     const speedIntensity = getSpeedIntensity(vehicle.position.speed);
-    
-    
+
+
     // Apply speed-based color intensity
     const rgb = hexToRgb(color);
     if (rgb) {
@@ -625,21 +665,62 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     } else {
       ctx.fillStyle = color;
     }
-    
+
     // Draw vehicle rectangle
     ctx.fillRect(pos.x - size.width / 2, pos.y - size.height / 2, size.width, size.height);
-    
+
     // Draw vehicle border
     ctx.strokeStyle = '#1F2937';
     ctx.lineWidth = 1;
     ctx.strokeRect(pos.x - size.width / 2, pos.y - size.height / 2, size.width, size.height);
-    
-    // Draw vehicle ID
+
+    // Draw callout line extending diagonally upward
+    const calloutLengthX = 80; // Horizontal length of callout line
+    const calloutLengthY = -50; // Vertical length (negative = upward)
+    const calloutOffsetX = vehicle.position.x > 0 ? 1 : -1; // Extend right if on right side, left if on left side
+    const calloutStartX = pos.x + (size.width / 2) * calloutOffsetX;
+    const calloutStartY = pos.y;
+    const calloutEndX = calloutStartX + (calloutLengthX * calloutOffsetX);
+    const calloutEndY = calloutStartY + calloutLengthY;
+
+    // Draw callout line
+    ctx.strokeStyle = '#6B7280';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 2]);
+    ctx.beginPath();
+    ctx.moveTo(calloutStartX, calloutStartY);
+    ctx.lineTo(calloutEndX, calloutEndY);
+    ctx.stroke();
+    ctx.setLineDash([]); // Reset dash pattern
+
+    // Draw vehicle ID at end of callout with background
+    const vehicleId = vehicle.targetId.slice(-6);
+    const vehicleType = vehicle.position.vehicleType || 'unknown';
+    const speed = (vehicle.position.speed || 0).toFixed(0);
+    const labelText = `${vehicleId} | ${vehicleType} | ${speed}km/h`;
+
+    ctx.font = 'bold 16px system-ui';
+    ctx.textAlign = calloutOffsetX > 0 ? 'left' : 'right';
+    const textMetrics = ctx.measureText(labelText);
+    const textWidth = textMetrics.width;
+    const textHeight = 20;
+    const padding = 6;
+
+    // Draw label background
+    const bgX = calloutOffsetX > 0 ? calloutEndX : calloutEndX - textWidth - padding * 2;
+    const bgY = calloutEndY - textHeight / 2 - padding;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.fillRect(bgX, bgY, textWidth + padding * 2, textHeight + padding * 2);
+
+    // Draw label border
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(bgX, bgY, textWidth + padding * 2, textHeight + padding * 2);
+
+    // Draw label text
     ctx.fillStyle = '#1F2937';
-    ctx.font = '10px system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillText(vehicle.targetId.slice(-4), pos.x, pos.y - size.height / 2 - 5);
-  }, [getSpeedIntensity, hexToRgb]);
+    ctx.fillText(labelText, calloutEndX + (calloutOffsetX > 0 ? padding : -padding), calloutEndY + 6);
+  }, [getSpeedIntensity, hexToRgb, getVehicleColor]);
 
   const drawSpeedVector = useCallback((ctx: CanvasRenderingContext2D, vehicle: VehicleState, pos: { x: number; y: number }) => {
     if (vehicle.position.speed < 1) return; // Don't draw vectors for stationary vehicles
@@ -709,97 +790,85 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     });
   }, [vehicles, renderOptions, radarToVisual, calculateVehicleSize, drawVehicleTrail, drawVehicle, drawSpeedVector]);
 
+  // Subscribe to tracking channel when WebSocket is connected
   useEffect(() => {
-    // Connect to WebSocket for real-time vehicle tracking
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:8081`;
-    const websocket = new WebSocket(wsUrl);
+    if (ws && connectionStatus === 'connected') {
+      subscribeToChannel('tracking');
+    }
+  }, [ws, connectionStatus, subscribeToChannel]);
 
-    websocket.onopen = () => {
-      console.log('🔌 Connected to Tracking WebSocket');
-      setConnectionStatus('connected');
-      
-      // Subscribe to the selected device
-      websocket.send(JSON.stringify({
-        type: 'subscribe',
-        deviceId: selectedDevice.id
-      }));
-    };
+  // Handle WebSocket messages
+  useEffect(() => {
+    if (!ws) return;
 
-    websocket.onmessage = (event) => {
+    const handleMessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data);
         
-        if (data.type === 'initial_data' || data.type === 'vehicle_update') {
-          // Convert WebSocket data to vehicle states
-          const vehicleStates: VehicleState[] = data.vehicles.map((vehicle: any) => ({
-            targetId: vehicle.targetId,
-            position: {
+        if (data.type === 'tracking_data' || data.type === 'tracking_update') {
+          // Handle tracking updates
+          if (data.data && data.data.vehicles) {
+            const vehicleStates: VehicleState[] = data.data.vehicles.map((vehicle: VehiclePosition) => ({
               targetId: vehicle.targetId,
-              x: vehicle.x,
-              y: vehicle.y,
-              length: 4.5, // Default vehicle length
-              width: 1.8,  // Default vehicle width
-              height: 1.5, // Default vehicle height
-              speed: vehicle.speed,
-              vehicleType: vehicle.vehicleType,
-              laneNo: vehicle.laneNo,
-              timestamp: new Date(),
-              xSpeed: 0,
-              ySpeed: 0,
-              acceleration: 0
-            },
-            trajectory: [{ // Simple trajectory for now
-              targetId: vehicle.targetId,
-              x: vehicle.x,
-              y: vehicle.y,
-              length: 4.5,
-              width: 1.8,
-              height: 1.5,
-              speed: vehicle.speed,
-              vehicleType: vehicle.vehicleType,
-              laneNo: vehicle.laneNo,
-              timestamp: new Date(),
-              xSpeed: 0,
-              ySpeed: 0,
-              acceleration: 0
-            }],
-            isVisible: true,
-            lastSeen: new Date(),
-            enterTime: new Date()
-          }));
-          
-          setVehicles(vehicleStates);
-          
-          // Accumulate trail history for heat map
-          const newTrailHistory = new Map(globalTrailHistory);
-          vehicleStates.forEach(vehicle => {
-            vehicle.trajectory.forEach(pos => {
-              const key = getGridKey(pos.x, pos.y);
-              newTrailHistory.set(key, (newTrailHistory.get(key) || 0) + 1);
+              position: {
+                targetId: vehicle.targetId,
+                x: vehicle.x,
+                y: vehicle.y,
+                length: 4.5,
+                width: 1.8,
+                height: 1.5,
+                speed: vehicle.speed,
+                vehicleType: vehicle.vehicleType,
+                laneNo: vehicle.laneNo,
+                timestamp: new Date(),
+                xSpeed: 0,
+                ySpeed: 0,
+                acceleration: 0
+              },
+              trajectory: [{
+                targetId: vehicle.targetId,
+                x: vehicle.x,
+                y: vehicle.y,
+                length: 4.5,
+                width: 1.8,
+                height: 1.5,
+                speed: vehicle.speed,
+                vehicleType: vehicle.vehicleType,
+                laneNo: vehicle.laneNo,
+                timestamp: new Date(),
+                xSpeed: 0,
+                ySpeed: 0,
+                acceleration: 0
+              }],
+              isVisible: true,
+              lastSeen: new Date(),
+              enterTime: new Date()
+            }));
+            
+            setVehicles(vehicleStates);
+            
+            // Accumulate trail history for heat map
+            const newTrailHistory = new Map(globalTrailHistory);
+            vehicleStates.forEach(vehicle => {
+              vehicle.trajectory.forEach(pos => {
+                const key = getGridKey(pos.x, pos.y);
+                newTrailHistory.set(key, (newTrailHistory.get(key) || 0) + 1);
+              });
             });
-          });
-          setGlobalTrailHistory(newTrailHistory);
+            setGlobalTrailHistory(newTrailHistory);
+          }
+        } else if (data.type === 'tracking_summary') {
+          // Handle tracking summary updates
+          console.log('📊 Tracking summary:', data.data);
         }
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
       }
     };
 
-    websocket.onclose = () => {
-      console.log('🔌 Tracking WebSocket disconnected');
-      setConnectionStatus('disconnected');
-    };
-
-    websocket.onerror = (error) => {
-      console.error('Tracking WebSocket error:', error);
-      setConnectionStatus('disconnected');
-    };
-
-    return () => {
-      websocket.close();
-    };
-  }, [selectedDevice.id]);
+    ws.addEventListener('message', handleMessage);
+    return () => ws.removeEventListener('message', handleMessage);
+  }, [ws, getGridKey, globalTrailHistory]);
 
   // Effect to draw heat map once when sufficient data accumulated
   useEffect(() => {
@@ -812,7 +881,11 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawHeatMapRoad(ctx);
-    setHeatMapInitialized(true);
+    
+    // Use setTimeout to avoid setState in effect
+    setTimeout(() => {
+      setHeatMapInitialized(true);
+    }, 0);
   }, [globalTrailHistory, heatMapInitialized, drawHeatMapRoad]);
 
   useEffect(() => {
@@ -1026,95 +1099,6 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
             Mouse wheel to zoom • Drag to pan
           </div>
         </div>
-        
-        {/* Radar Data Analysis & Scenario Selection */}
-        <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-          <h4 className="text-sm font-medium text-blue-900 mb-2">Radar Data Analysis & Lane Scenarios</h4>
-          <div className="text-xs text-blue-700 space-y-2">
-            {(() => {
-              const analysis = analyzeRadarData();
-              const currentScenario = analysis.scenarios[selectedScenario];
-              
-              return (
-                <>
-                  {/* Vehicle Statistics */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>Vehicles: {analysis.vehicleStats.count}</div>
-                    <div>Avg Width: {analysis.vehicleStats.avgWidth.toFixed(1)}m</div>
-                    <div>Avg Length: {analysis.vehicleStats.avgLength.toFixed(1)}m</div>
-                    <div>Max Width: {analysis.vehicleStats.maxWidth?.toFixed(1) || 'N/A'}m</div>
-                  </div>
-                  
-                  {/* Vehicle Types */}
-                  <div>
-                    <strong>Vehicle Types:</strong> {Object.entries(analysis.vehicleStats.types)
-                      .map(([type, count]) => `${type}: ${count}`)
-                      .join(', ')}
-                  </div>
-                  
-                  {/* Lane Usage from Radar */}
-                  <div>
-                    <strong>Radar Lane Usage:</strong> {analysis.vehicleStats.laneUsage ? 
-                      Object.entries(analysis.vehicleStats.laneUsage)
-                        .map(([lane, count]) => `Lane ${lane}: ${count}`)
-                        .join(', ') : 'No data'}
-                  </div>
-                  
-                  {/* Radar Lane Analysis */}
-                  {analysis.vehicleStats.radarLanes && analysis.vehicleStats.radarLanes.length > 0 && (
-                    <div>
-                      <strong>Radar Lane Analysis:</strong>
-                      <div className="mt-1 space-y-1">
-                        {analysis.vehicleStats.radarLanes.map(lane => (
-                          <div key={lane.laneNumber} className="text-xs bg-gray-100 px-2 py-1 rounded">
-                            Lane {lane.laneNumber}: X={lane.avgX.toFixed(1)}m, Width={lane.width.toFixed(1)}m, Vehicles={lane.vehicleCount}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Scenario Selector */}
-                  <div className="mt-3">
-                    <label className="block text-xs font-medium text-blue-900 mb-1">Select Lane Scenario:</label>
-                    <div className="grid grid-cols-3 gap-1">
-                      {analysis.scenarios.map((scenario) => (
-                        <button
-                          key={scenario.id}
-                          onClick={() => setSelectedScenario(scenario.id)}
-                          className={`px-2 py-1 rounded text-xs ${
-                            selectedScenario === scenario.id
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-white text-blue-700 hover:bg-blue-100'
-                          }`}
-                        >
-                          {scenario.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {/* Current Scenario Info */}
-                  <div className="mt-2 p-2 bg-white rounded">
-                    <div className="font-medium">{currentScenario.name}</div>
-                    <div className="text-gray-600">{currentScenario.description}</div>
-                    <div className="mt-1">
-                      <strong>Lanes:</strong> {currentScenario.lanes.length} | 
-                      <strong> Width:</strong> {currentScenario.lanes[0]?.width?.toFixed(1)}m each
-                    </div>
-                    <div className="grid grid-cols-3 gap-1 mt-1">
-                      {currentScenario.lanes.map(lane => (
-                        <div key={lane.laneNumber} className="bg-gray-100 px-2 py-1 rounded text-center text-xs">
-                          {lane.description}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        </div>
 
         {/* Preset Zoom Levels */}
         <div className="flex items-center space-x-2 mt-2">
@@ -1158,24 +1142,14 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
           ref={heatMapCanvasRef}
           width={CANVAS_CONFIG.width}
           height={CANVAS_CONFIG.height}
-          className="absolute top-0 left-0 w-full h-full"
-          style={{ 
-            height: '900px',
-            maxWidth: '100%',
-            objectFit: 'contain'
-          }}
+          className="absolute top-0 left-0 w-full h-full canvas-heatmap"
         />
         <canvas
           ref={canvasRef}
           onClick={handleCanvasClick}
           onWheel={handleCanvasWheel}
           onMouseDown={handleCanvasMouseDown}
-          className="relative w-full h-full cursor-crosshair"
-          style={{ 
-            height: '900px',
-            maxWidth: '100%',
-            objectFit: 'contain'
-          }}
+          className="relative w-full h-full cursor-crosshair canvas-main"
         />
       </div>
 
@@ -1227,6 +1201,130 @@ export default function LiveTracking({ className = '' }: LiveTrackingProps) {
           </div>
         </div>
       )}
+
+      {/* Radar Data Analysis & Scenario Selection */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Radar Data Analysis & Lane Scenarios</h3>
+        <div className="text-sm text-gray-700 space-y-4">
+          {(() => {
+            const analysis = analyzeRadarData();
+            const currentScenario = analysis.scenarios[selectedScenario];
+
+            return (
+              <>
+                {/* Vehicle Statistics */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Vehicle Statistics</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Total Vehicles</label>
+                      <p className="text-lg font-semibold text-gray-900">{analysis.vehicleStats.count}</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Average Width</label>
+                      <p className="text-lg font-semibold text-gray-900">{analysis.vehicleStats.avgWidth.toFixed(1)}m</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Average Length</label>
+                      <p className="text-lg font-semibold text-gray-900">{analysis.vehicleStats.avgLength.toFixed(1)}m</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Max Width</label>
+                      <p className="text-lg font-semibold text-gray-900">{analysis.vehicleStats.maxWidth?.toFixed(1) || 'N/A'}m</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Vehicle Types */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Vehicle Types</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(analysis.vehicleStats.types).map(([type, count]) => (
+                      <div key={type} className="px-3 py-2 bg-blue-50 rounded-lg">
+                        <span className="text-sm font-medium text-blue-900 capitalize">{type}:</span>
+                        <span className="ml-1 text-sm font-semibold text-blue-700">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Lane Usage from Radar */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Radar Lane Usage</h4>
+                  {analysis.vehicleStats.laneUsage ? (
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(analysis.vehicleStats.laneUsage).map(([lane, count]) => (
+                        <div key={lane} className="px-3 py-2 bg-green-50 rounded-lg">
+                          <span className="text-sm font-medium text-green-900">Lane {lane}:</span>
+                          <span className="ml-1 text-sm font-semibold text-green-700">{count} vehicles</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">No lane data available</p>
+                  )}
+                </div>
+
+                {/* Radar Lane Analysis */}
+                {analysis.vehicleStats.radarLanes && analysis.vehicleStats.radarLanes.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-gray-900 mb-2">Radar Lane Details</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {analysis.vehicleStats.radarLanes.map(lane => (
+                        <div key={lane.laneNumber} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <div className="font-medium text-gray-900 mb-1">Lane {lane.laneNumber}</div>
+                          <div className="text-xs text-gray-600 space-y-1">
+                            <div>Position: X={lane.avgX.toFixed(1)}m</div>
+                            <div>Width: {lane.width.toFixed(1)}m</div>
+                            <div>Vehicles: {lane.vehicleCount}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Scenario Selector */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">Lane Scenario Selection</h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    {analysis.scenarios.map((scenario) => (
+                      <button
+                        key={scenario.id}
+                        onClick={() => setSelectedScenario(scenario.id)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          selectedScenario === scenario.id
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white text-blue-700 border border-blue-200 hover:bg-blue-50'
+                        }`}
+                      >
+                        {scenario.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Current Scenario Info */}
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="font-medium text-blue-900 text-base mb-1">{currentScenario.name}</div>
+                  <div className="text-sm text-blue-700 mb-3">{currentScenario.description}</div>
+                  <div className="text-sm text-blue-800 mb-2">
+                    <strong>Lanes:</strong> {currentScenario.lanes.length} |
+                    <strong> Width:</strong> {currentScenario.lanes[0]?.width?.toFixed(1)}m each
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {currentScenario.lanes.map(lane => (
+                      <div key={lane.laneNumber} className="bg-white px-3 py-2 rounded text-center text-sm font-medium text-gray-900 border border-blue-100">
+                        {lane.description}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </div>
     </div>
   );
 }

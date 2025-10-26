@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { RadarDevice, DeviceStatus, DeviceContextType, DEFAULT_DEVICES, DEFAULT_DEVICE_CONFIG } from '@/types/device';
+import { RadarDevice, CameraDevice, DeviceStatus, DeviceContextType, DEFAULT_DEVICES, DEFAULT_CAMERAS, DEFAULT_DEVICE_CONFIG } from '@/types/device';
 import { DeviceSyncService } from '@/lib/device-sync-service';
 
 const DeviceContext = createContext<DeviceContextType | undefined>(undefined);
@@ -17,6 +17,11 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [isClient, setIsClient] = useState(false);
+  
+  // Camera state
+  const [selectedCamera, setSelectedCamera] = useState<CameraDevice | undefined>();
+  const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>(DEFAULT_CAMERAS);
+  const [cameraStatus, setCameraStatus] = useState<Record<string, DeviceStatus>>({});
 
   // Set client-side flag
   useEffect(() => {
@@ -153,6 +158,40 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
     }
   };
 
+  const switchCamera = async (cameraId: string) => {
+    try {
+      setIsLoading(true);
+      setError(undefined);
+      
+      const camera = availableCameras.find(c => c.id === cameraId);
+      if (!camera) {
+        throw new Error(`Camera ${cameraId} not found`);
+      }
+      
+      console.log(`🔄 DeviceContext: Switching to camera: ${camera.name} (${camera.id})`);
+      
+      // Update local state
+      setSelectedCamera(camera);
+      
+      // Update camera status
+      setCameraStatus(prev => ({
+        ...prev,
+        [cameraId]: {
+          ...prev[cameraId],
+          status: 'online',
+          lastUpdate: new Date()
+        }
+      }));
+      
+      console.log(`✅ DeviceContext: Successfully switched to camera: ${camera.name} (${camera.id})`);
+      
+    } catch (err) {
+      console.error('Error switching camera:', err);
+      setError(`Failed to switch to camera ${cameraId}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Device health monitoring (client-side only)
   useEffect(() => {
@@ -161,17 +200,19 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
     const checkDeviceHealth = async () => {
       for (const device of availableDevices) {
         try {
-          // Simple health check - could be enhanced with actual API calls
-          // Only use Math.random() on client-side to prevent hydration mismatches
-          const isHealthy = Math.random() > 0.1; // 90% success rate for demo
-          
+          // Deterministic health check based on device ID hash
+          // This avoids Math.random() during hydration and provides stable results
+          const deviceIdHash = device.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+          const isHealthy = deviceIdHash % 10 !== 0; // 90% success rate
+          const latency = (deviceIdHash % 100) + 10; // 10-110ms based on device ID
+
           setDeviceStatus(prev => ({
             ...prev,
             [device.id]: {
               ...prev[device.id],
               status: isHealthy ? 'online' : 'offline',
               lastUpdate: new Date(),
-              dataLatency: Math.floor(Math.random() * 100) + 10 // 10-110ms
+              dataLatency: latency
             }
           }));
         } catch (err) {
@@ -188,13 +229,19 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
       }
     };
 
-    // Initial health check (client-side only)
-    checkDeviceHealth();
-    
+    // Delay initial health check to ensure client-side only execution
+    // This prevents any hydration mismatch issues
+    const initialCheckTimeout = setTimeout(() => {
+      checkDeviceHealth();
+    }, 500);
+
     // Set up periodic health checks (client-side only)
     const interval = setInterval(checkDeviceHealth, DEFAULT_DEVICE_CONFIG.deviceHealthCheckInterval);
-    
-    return () => clearInterval(interval);
+
+    return () => {
+      clearTimeout(initialCheckTimeout);
+      clearInterval(interval);
+    };
   }, [isClient, availableDevices]);
 
   const contextValue: DeviceContextType = {
@@ -203,7 +250,12 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
     switchDevice,
     deviceStatus,
     isLoading,
-    error
+    error,
+    // Camera support
+    selectedCamera,
+    availableCameras,
+    switchCamera,
+    cameraStatus
   };
 
   return (

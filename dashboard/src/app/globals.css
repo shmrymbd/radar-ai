@@ -18,4 +18,37 @@
   .tab-button-inactive {
     @apply text-gray-600 hover:text-gray-900 hover:bg-gray-100;
   }
+
+  /* Canvas styles for LiveTracking component */
+  .canvas-heatmap {
+    height: 900px;
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  .canvas-main {
+    height: 900px;
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  /* Progress bar styles for HistoricalCharts */
+  .progress-bar {
+    width: var(--bar-width, 0%);
+  }
+
+  /* Bar chart styles for HistoricalCharts */
+  .bar-chart-bar {
+    height: var(--bar-height, 0%);
+  }
+
+  /* Dynamic width utility classes */
+  .w-dynamic {
+    width: var(--dynamic-width);
+  }
+
+  /* Dynamic height utility classes */
+  .h-dynamic {
+    height: var(--dynamic-height);
+  }
 }

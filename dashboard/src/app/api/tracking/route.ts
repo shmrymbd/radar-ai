@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { VehicleTracker } from '@/lib/vehicle-tracker';
 import { RedisStorage } from '@/lib/redis-storage';
 import { ObjectData } from '@/types/radar';
+import { withApiProtection } from '@/lib/middleware';
 
 const vehicleTracker = new VehicleTracker();
 
 export async function GET(request: NextRequest) {
+  // Apply authentication and rate limiting
+  const protection = withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const deviceId = searchParams.get('device') || 'Radar04'; // Default to Radar04 for backward compatibility

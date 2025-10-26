@@ -1,15 +1,24 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ClassificationProcessor } from '@/lib/classification-processor';
+import { withApiProtection } from '@/lib/middleware';
 
 const classificationProcessor = ClassificationProcessor.getInstance();
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Apply authentication and rate limiting
+  const protection = withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
-    const summary = classificationProcessor.getClassificationSummary();
+    const { searchParams } = new URL(request.url);
+    const deviceId = searchParams.get('deviceId') || 'test';
+    
+    const summary = classificationProcessor.getClassificationSummary(deviceId);
     
     return NextResponse.json({
       success: true,
       data: summary,
+      deviceId,
       timestamp: new Date().toISOString()
     });
   } catch (error: any) {

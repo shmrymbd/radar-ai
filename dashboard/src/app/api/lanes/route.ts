@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RedisStorage } from '@/lib/redis-storage';
+import { withApiProtection } from '@/lib/middleware';
 
 export async function GET(request: NextRequest) {
+  // Apply authentication and rate limiting
+  const protection = withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const laneNumber = searchParams.get('lane');

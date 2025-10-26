@@ -1,30 +1,19 @@
 import { NextResponse } from 'next/server';
-import { createClient } from 'redis';
+import { getRedisClient } from '@/lib/redis';
 
 export async function GET() {
   try {
-    // Create a new Redis client for this test
-    const client = createClient({
-      url: `redis://${process.env.REDIS_HOST || '192.168.6.22'}:${process.env.REDIS_PORT || '6379'}`,
-    });
-
-    // Connect to Redis
-    await client.connect();
-    console.log('Connected to Redis');
+    // Use the singleton Redis client from lib/redis.ts
+    const client = await getRedisClient();
+    console.log('Using singleton Redis client');
 
     // Test ping
     const pingResult = await client.ping();
     console.log('Ping result:', pingResult);
 
-    // Test getting data - try different method names
-    console.log('Available methods:', Object.getOwnPropertyNames(client).filter(name => typeof client[name] === 'function'));
-    
-    // Try lRange (capital R) instead of lrange
+    // Test getting data
     const objectData = await client.lRange('Radar04/objectdata', 0, 0);
     const laneStatus = await client.lRange('Radar04/lanestatus', 0, 0);
-
-    // Close connection
-    await client.disconnect();
 
     return NextResponse.json({
       success: true,

@@ -14,10 +14,12 @@ This project processes real-time radar data from ClairWav-T80 systems to provide
 ## Technical Architecture
 
 ### Backend
-- **Framework**: Next.js 15 with App Router and Server Components
-- **Database**: Redis 192.168.6.22:6379 with Radar04/* key pattern
-- **Real-time**: WebSocket connections for live data updates
-- **Language**: TypeScript with strict typing
+- **Framework**: Next.js 15.1.8 with App Router and Server Components
+- **Database**: Redis 5.9.0 (192.168.6.22:6379) with Radar04/* key pattern
+- **Historical Storage**: MongoDB 6.20.0 (192.168.6.22:27017)
+- **Real-time**: Unified WebSocket server (port 8080) for live data updates
+- **Language**: TypeScript 5.x with strict typing
+- **Runtime**: Node.js 18+ with @types/node ^24
 
 ### Data Sources
 The system processes five types of radar data packets:
@@ -28,9 +30,16 @@ The system processes five types of radar data packets:
 - **Region Data (0x02)**: Turn movement statistics (12 bytes/region)
 
 ### Key Features
-- Real-time queue length monitoring (0.1m resolution)
-- Multi-lane analysis for lanes 11, 12, 13, and 485
-- Vehicle classification (car, van, SUV, truck)
+- **Real-time Dashboard**: Live traffic monitoring with 0.1m resolution queue detection
+- **Multi-lane Analysis**: Comprehensive analysis across lanes 11, 12, 13, and 485
+- **Vehicle Classification System**: Advanced analytics for vehicle types, traffic composition, and intersection performance
+- **Live Vehicle Tracking**: Interactive visualization with heat maps and coordinate systems
+- **Video Streaming**: Multi-camera HLS streaming with 1-second latency and recording capabilities
+- **Historical Analytics**: Time-based traffic patterns, peak hour analysis, and performance metrics
+- **Interactive Charts**: Dynamic visualizations for vehicle distribution, speed analysis, and lane utilization
+- **Multi-device Support**: Dynamic device selection with device-specific data isolation
+- **WebSocket Integration**: Real-time updates via unified WebSocket server
+- **Performance Monitoring**: Built-in monitoring and rate limiting for optimal performance
 - Speed analysis and violation detection
 - Turn movement statistics
 - Signal timing optimization algorithms
@@ -96,12 +105,24 @@ See [REDIS_CONNECTION_STATUS.md](./REDIS_CONNECTION_STATUS.md) and [MONGODB_CONN
 - **Traffic Data**: Statistical analysis with vehicle type counts and flow rates
 - **Region Data**: Turn movement percentages for signal optimization
 
+### Vehicle Classification System
+- **PassData Processing**: Real-time analysis of vehicle crossing events (0x05 packets)
+- **Vehicle Type Classification**: Automatic classification of cars, SUVs, trucks, motorcycles, and vans
+- **Speed Analysis**: Statistical analysis of speeds by vehicle type with violation detection
+- **Lane Utilization**: Traffic density analysis across intersection lanes
+- **Time-based Aggregation**: Multi-level time analysis (1min, 15min, 1hour, daily)
+- **Peak Hour Analysis**: Identification of busiest traffic periods
+- **Traffic Composition**: Analysis of vehicle type distribution and trends
+
 ### Key Calculations
 - Queue length and vehicle counts
 - Average speeds and headway times
 - Space and time occupancy rates
 - Turn movement percentages
 - Traffic density and flow rates
+- **Vehicle Classification Metrics**: Type distribution, speed analysis, lane utilization
+- **Real-time Analytics**: Live vehicle counting and classification updates
+- **Historical Trends**: Time-based traffic pattern analysis
 
 ## Performance Requirements
 
@@ -121,11 +142,29 @@ See [REDIS_CONNECTION_STATUS.md](./REDIS_CONNECTION_STATUS.md) and [MONGODB_CONN
 
 ## Documentation
 
+### Core Documentation
 - **Radar Parameters**: Complete reference guide for all data types
-- **API Documentation**: Endpoint specifications and data structures
+- **API Documentation**: [Complete API Reference](./API_DOCUMENTATION.md)
+- **Deployment Guide**: [Comprehensive Deployment Instructions](./DEPLOYMENT_GUIDE.md)
+- **Video Streaming**: [Video Streaming Deployment Guide](./VIDEO_STREAMING_DEPLOYMENT.md)
 - **Traffic Engineering**: Calculation methods and algorithms
 - **System Architecture**: Technical diagrams and workflows
 - **User Guide**: Traffic engineer interface documentation
+
+### Vehicle Classification Documentation
+- [API Classification Guide](./dashboard/src/docs/API_CLASSIFICATION.md)
+- [Classification User Guide](./dashboard/src/docs/CLASSIFICATION_USER_GUIDE.md)
+- [Classification Algorithms](./dashboard/src/docs/CLASSIFICATION_ALGORITHMS.md)
+- [Classification Architecture](./dashboard/src/docs/CLASSIFICATION_ARCHITECTURE.md)
+- [Classification Deployment](./dashboard/src/docs/CLASSIFICATION_DEPLOYMENT.md)
+
+### Video Streaming Features
+- **Real-time Video Streaming**: RTSP camera integration with 1-second latency
+- **HLS Streaming**: HTTP Live Streaming with FFmpeg processing
+- **Camera Management**: Add, edit, and manage multiple IP cameras
+- **Video Recording**: On-demand and automatic video recording
+- **Multi-camera Support**: Simultaneous streaming from multiple cameras
+- **Browser Compatibility**: hls.js integration for universal browser support
 
 ## Contributing
 

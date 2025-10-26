@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { DeviceProvider } from '@/contexts/DeviceContext';
 import DashboardLayout from '@/components/DashboardLayout';
 import DashboardOverview from '@/components/DashboardOverview';
 import LiveTracking from '@/components/LiveTracking';
@@ -36,6 +35,19 @@ export default function Dashboard() {
             </Link>
           </div>
         );
+      case 'video-streaming':
+        return (
+          <div className="bg-white rounded-lg shadow p-8 text-center">
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Video Streaming</h2>
+            <p className="text-gray-600 mb-4">Real-time camera feeds and video management for traffic monitoring</p>
+            <Link 
+              href="/video-streaming"
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Open Video Streaming Dashboard
+            </Link>
+          </div>
+        );
       case 'settings':
         return (
           <div className="bg-white rounded-lg shadow p-8 text-center">
@@ -49,10 +61,8 @@ export default function Dashboard() {
   };
 
   return (
-    <DeviceProvider>
-      <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
-        {renderTabContent()}
-      </DashboardLayout>
-    </DeviceProvider>
+    <DashboardLayout activeTab={activeTab} onTabChange={setActiveTab}>
+      {renderTabContent()}
+    </DashboardLayout>
   );
 }

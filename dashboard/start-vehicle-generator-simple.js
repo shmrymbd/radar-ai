@@ -42,12 +42,12 @@ class SimpleVehicleGenerator {
 
   initializeVehicles(deviceId) {
     const lanes = [11, 12, 31, 32];
-    const vehicleTypes = ['car', 'motorcycle', 'suv', 'truck'];
-    
-    // Create 3-5 vehicles per lane
+    const vehicleTypes = ['car', 'van', 'suv', 'truck', 'motorcycle', 'bus', 'large_truck'];
+
+    // Create 2-3 vehicles per lane
     for (const lane of lanes) {
-      const vehicleCount = Math.floor(Math.random() * 3) + 2; // 2-4 vehicles per lane
-      
+      const vehicleCount = Math.floor(Math.random() * 2) + 2; // 2-3 vehicles per lane
+
       for (let i = 0; i < vehicleCount; i++) {
         const targetId = `${Date.now()}_${lane}_${i}`;
         const vehicle = {
@@ -60,7 +60,7 @@ class SimpleVehicleGenerator {
           direction: Math.random() > 0.5 ? 1 : -1,
           lastUpdate: Date.now()
         };
-        
+
         this.vehicles.set(targetId, vehicle);
       }
     }
@@ -152,13 +152,25 @@ class SimpleVehicleGenerator {
   }
 
   getVehicleTypeCode(vehicleType) {
+    // Official ClairWav Communication Protocol V2.1 - Video Integrated Models (Section 2.2.2)
     const typeCodes = {
+      'other': 0,
+      'bicycle': 1,
+      'motorcycle': 2,
+      'tricycle': 3,
+      'bus': 4,
+      'van': 5,
       'car': 6,
-      'motorcycle': 1,
       'suv': 7,
-      'truck': 8
+      'large_truck': 8,
+      'medium_truck': 9,
+      'light_truck': 10,
+      'dangerous_goods': 11,
+      'engineering_vehicle': 12,
+      'pedestrian': 13,
+      'medium_bus': 14
     };
-    return typeCodes[vehicleType] || 6;
+    return typeCodes[vehicleType] || 0;
   }
 
   generatePlateNumber() {
@@ -179,9 +191,12 @@ class SimpleVehicleGenerator {
   getVehicleLength(vehicleType) {
     const lengths = {
       'car': 4.5,
-      'motorcycle': 2.0,
+      'van': 5.2,
       'suv': 5.0,
-      'truck': 8.0
+      'truck': 7.0,
+      'motorcycle': 2.0,
+      'bus': 12.0,
+      'large_truck': 10.0
     };
     return lengths[vehicleType] || 4.5;
   }
@@ -189,9 +204,12 @@ class SimpleVehicleGenerator {
   getVehicleWidth(vehicleType) {
     const widths = {
       'car': 1.8,
-      'motorcycle': 1.0,
+      'van': 1.9,
       'suv': 2.0,
-      'truck': 2.5
+      'truck': 2.4,
+      'motorcycle': 1.0,
+      'bus': 2.5,
+      'large_truck': 2.6
     };
     return widths[vehicleType] || 1.8;
   }
@@ -199,9 +217,12 @@ class SimpleVehicleGenerator {
   getVehicleHeight(vehicleType) {
     const heights = {
       'car': 1.5,
-      'motorcycle': 1.2,
+      'van': 2.0,
       'suv': 1.8,
-      'truck': 3.0
+      'truck': 2.8,
+      'motorcycle': 1.2,
+      'bus': 3.2,
+      'large_truck': 3.5
     };
     return heights[vehicleType] || 1.5;
   }
