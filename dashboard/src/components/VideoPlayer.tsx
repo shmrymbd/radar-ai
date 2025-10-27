@@ -11,9 +11,11 @@ interface VideoPlayerProps {
 
 export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [showPlayButton, setShowPlayButton] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -45,23 +47,90 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
-            backBufferLength: 90
+            backBufferLength: 90,
+            // Increase buffer to prevent stalling
+            maxBufferLength: 10,
+            maxMaxBufferLength: 20,
+            maxBufferSize: 60 * 1000 * 1000, // 60MB
+            maxBufferHole: 0.5,
+            // Reduce latency - sync with 5 segments
+            liveSyncDurationCount: 3, // Increased from 2 to 3
+            liveMaxLatencyDurationCount: 5,
+            // Better error recovery
+            manifestLoadingMaxRetry: 3,
+            manifestLoadingRetryDelay: 500,
+            levelLoadingMaxRetry: 3,
+            fragLoadingMaxRetry: 3,
+            fragLoadingTimeOut: 10000, // 10 second timeout
+            // Handle append errors gracefully
+            appendErrorMaxRetry: 3,
+            // Debug mode off to reduce console noise
+            debug: false
           });
-          
+
+          // Store HLS instance in ref for cleanup
+          hlsRef.current = hls;
+
           hls.loadSource(hlsUrl);
           hls.attachMedia(video);
-          
+
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            console.log('HLS manifest parsed, starting playback');
-            video.play().catch(console.error);
+            console.log('✅ HLS manifest parsed, starting playback');
+            setIsLoading(false);
+            setConnectionStatus('connected');
+
+            // Attempt autoplay (muted to bypass browser restrictions)
+            video.play().catch(err => {
+              console.warn('⚠️ Autoplay blocked by browser:', err.message);
+              // Show play button overlay for user interaction
+              setShowPlayButton(true);
+            });
           });
-          
+
+          // Buffer health monitoring
+          hls.on(Hls.Events.FRAG_BUFFERED, () => {
+            if (video) {
+              const buffered = video.buffered;
+              if (buffered.length > 0) {
+                const bufferEnd = buffered.end(buffered.length - 1);
+                const bufferLength = bufferEnd - video.currentTime;
+
+                if (bufferLength < 1) {
+                  console.warn('⚠️ Buffer critically low:', bufferLength.toFixed(2) + 's');
+                }
+              }
+            }
+          });
+
           hls.on(Hls.Events.ERROR, (event, data) => {
             console.error('HLS error:', data);
+
             if (data.fatal) {
-              setError('HLS playback error: ' + data.details);
-              setConnectionStatus('disconnected');
-              setIsLoading(false);
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  console.error('Fatal network error, attempting to recover');
+                  hls.startLoad(); // Try to recover from network error
+                  break;
+
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  console.error('Fatal media error, attempting to recover');
+                  hls.recoverMediaError(); // Try to recover from media error
+                  break;
+
+                default:
+                  console.error('Fatal error, cannot recover');
+                  setError('HLS playback error: ' + data.details);
+                  setConnectionStatus('disconnected');
+                  setIsLoading(false);
+                  if (hlsRef.current) {
+                    hlsRef.current.destroy();
+                    hlsRef.current = null;
+                  }
+                  break;
+              }
+            } else {
+              // Non-fatal errors - just log them
+              console.warn('Non-fatal HLS error:', data.details);
             }
           });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -104,10 +173,20 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
 
         // Cleanup function
         return () => {
+          console.log('🧹 Cleaning up video player resources');
+
+          // Remove video event listeners
           video.removeEventListener('loadedmetadata', handleLoadedMetadata);
           video.removeEventListener('error', handleError);
           video.removeEventListener('loadstart', handleLoadStart);
           video.removeEventListener('canplay', handleCanPlay);
+
+          // Destroy HLS instance to prevent memory leaks
+          if (hlsRef.current) {
+            console.log('🧹 Destroying HLS instance');
+            hlsRef.current.destroy();
+            hlsRef.current = null;
+          }
         };
 
       } catch (err) {
@@ -141,6 +220,20 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
     }
   };
 
+  const handlePlayClick = async () => {
+    const video = videoRef.current;
+    if (video) {
+      try {
+        await video.play();
+        setShowPlayButton(false);
+        console.log('✅ Video playback started after user interaction');
+      } catch (err) {
+        console.error('Failed to start playback:', err);
+        setError('Unable to start video playback');
+      }
+    }
+  };
+
   return (
     <div className="relative w-full h-full bg-black">
       {/* Video Element */}
@@ -158,6 +251,27 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
           <div className="text-center text-white">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
             <p className="text-sm">Connecting to camera...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Play Button Overlay (for autoplay blocked) */}
+      {showPlayButton && !error && (
+        <div
+          className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-60 cursor-pointer hover:bg-opacity-70 transition-opacity"
+          onClick={handlePlayClick}
+        >
+          <div className="text-center">
+            <button
+              className="bg-white bg-opacity-90 hover:bg-opacity-100 rounded-full p-6 shadow-2xl transition-all transform hover:scale-110"
+              aria-label="Play video"
+            >
+              <svg className="w-12 h-12 text-gray-900" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
+            <p className="text-white text-sm mt-4 font-medium">Click to start video</p>
+            <p className="text-gray-300 text-xs mt-1">Autoplay was blocked by your browser</p>
           </div>
         </div>
       )}
