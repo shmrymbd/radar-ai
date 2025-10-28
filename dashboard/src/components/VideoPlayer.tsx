@@ -12,6 +12,7 @@ interface VideoPlayerProps {
 export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+  const retryCountRef = useRef<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
@@ -46,24 +47,26 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
         if (Hls.isSupported()) {
           const hls = new Hls({
             enableWorker: true,
-            lowLatencyMode: true,
-            backBufferLength: 90,
+            lowLatencyMode: false, // Disable for stability with larger buffers
+            backBufferLength: 10, // Reduced from 90 to prevent memory issues
             // Increase buffer to prevent stalling
-            maxBufferLength: 10,
-            maxMaxBufferLength: 20,
+            maxBufferLength: 30, // Increased from 10 for more stability
+            maxMaxBufferLength: 60, // Increased from 20 for resilience
             maxBufferSize: 60 * 1000 * 1000, // 60MB
-            maxBufferHole: 0.5,
-            // Reduce latency - sync with 5 segments
-            liveSyncDurationCount: 3, // Increased from 2 to 3
-            liveMaxLatencyDurationCount: 5,
-            // Better error recovery
-            manifestLoadingMaxRetry: 3,
+            maxBufferHole: 1.0, // Increased from 0.5 for tolerance
+            // Sync with live edge
+            liveSyncDurationCount: 3,
+            liveMaxLatencyDurationCount: 10, // Increased from 5 for stability
+            // Better error recovery with more retries
+            manifestLoadingMaxRetry: 6, // Increased from 3
             manifestLoadingRetryDelay: 500,
-            levelLoadingMaxRetry: 3,
-            fragLoadingMaxRetry: 3,
+            levelLoadingMaxRetry: 6, // Increased from 3
+            fragLoadingMaxRetry: 6, // Increased from 3
             fragLoadingTimeOut: 10000, // 10 second timeout
             // Handle append errors gracefully
             appendErrorMaxRetry: 3,
+            // Prefetch for smoother playback
+            startFragPrefetch: true,
             // Debug mode off to reduce console noise
             debug: false
           });
@@ -78,6 +81,9 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
             console.log('✅ HLS manifest parsed, starting playback');
             setIsLoading(false);
             setConnectionStatus('connected');
+
+            // Reset retry count on successful connection
+            retryCountRef.current = 0;
 
             // Attempt autoplay (muted to bypass browser restrictions)
             video.play().catch(err => {
@@ -106,27 +112,54 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
             console.error('HLS error:', data);
 
             if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  console.error('Fatal network error, attempting to recover');
-                  hls.startLoad(); // Try to recover from network error
-                  break;
+              const maxRetries = 5;
 
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  console.error('Fatal media error, attempting to recover');
-                  hls.recoverMediaError(); // Try to recover from media error
-                  break;
+              if (retryCountRef.current < maxRetries) {
+                // Exponential backoff: 1s, 2s, 4s, 8s, 10s (capped)
+                const backoffDelay = Math.min(1000 * Math.pow(2, retryCountRef.current), 10000);
 
-                default:
-                  console.error('Fatal error, cannot recover');
-                  setError('HLS playback error: ' + data.details);
-                  setConnectionStatus('disconnected');
-                  setIsLoading(false);
-                  if (hlsRef.current) {
-                    hlsRef.current.destroy();
-                    hlsRef.current = null;
-                  }
-                  break;
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    console.warn(`Fatal network error, retry ${retryCountRef.current + 1}/${maxRetries} in ${backoffDelay}ms`);
+                    setTimeout(() => {
+                      if (hlsRef.current) {
+                        hlsRef.current.startLoad();
+                        retryCountRef.current++;
+                      }
+                    }, backoffDelay);
+                    break;
+
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    console.warn(`Fatal media error, retry ${retryCountRef.current + 1}/${maxRetries} in ${backoffDelay}ms`);
+                    setTimeout(() => {
+                      if (hlsRef.current) {
+                        hlsRef.current.recoverMediaError();
+                        retryCountRef.current++;
+                      }
+                    }, backoffDelay);
+                    break;
+
+                  default:
+                    console.error('Fatal error, cannot recover');
+                    setError('HLS playback error: ' + data.details);
+                    setConnectionStatus('disconnected');
+                    setIsLoading(false);
+                    if (hlsRef.current) {
+                      hlsRef.current.destroy();
+                      hlsRef.current = null;
+                    }
+                    break;
+                }
+              } else {
+                // Max retries exceeded
+                console.error(`Max retries (${maxRetries}) exceeded, giving up`);
+                setError('Unable to recover video stream after multiple attempts');
+                setConnectionStatus('disconnected');
+                setIsLoading(false);
+                if (hlsRef.current) {
+                  hlsRef.current.destroy();
+                  hlsRef.current = null;
+                }
               }
             } else {
               // Non-fatal errors - just log them

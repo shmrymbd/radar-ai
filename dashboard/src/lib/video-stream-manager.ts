@@ -113,7 +113,7 @@ class VideoStreamManager {
       '-keyint_min', '15',
       '-sc_threshold', '0', // Disable scene change detection
       // Timing and sync
-      '-fflags', '+genpts',
+      '-fflags', '+genpts+nobuffer+flush_packets',
       '-avoid_negative_ts', 'make_zero',
       '-max_delay', '500000',
       '-flags', '+global_header',
@@ -121,7 +121,7 @@ class VideoStreamManager {
       '-vsync', '1',
       '-fps_mode', 'passthrough',
       '-avioflags', 'direct',
-      '-fflags', 'nobuffer',
+      '-flush_packets', '1',
       // Network timeout and resilience
       '-rw_timeout', '10000000', // Increased to 10 seconds for better reliability
       '-reconnect', '1', // Enable automatic reconnection
