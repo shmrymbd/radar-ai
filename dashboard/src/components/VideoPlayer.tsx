@@ -40,9 +40,13 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
         const hlsUrl = stream.hlsUrl || `http://localhost:8083/hls/${stream.streamId}/playlist.m3u8`;
 
         // Use hls.js for HLS streaming
+        // Set video properties for optimal autoplay
         video.autoplay = true;
-        video.muted = true; // Mute to allow autoplay
+        video.muted = true; // Required for autoplay in most browsers
         video.playsInline = true;
+        video.setAttribute('webkit-playsinline', 'true');
+        video.setAttribute('x-webkit-airplay', 'allow');
+        video.preload = 'auto';
 
         if (Hls.isSupported()) {
           const hls = new Hls({
@@ -85,12 +89,37 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
             // Reset retry count on successful connection
             retryCountRef.current = 0;
 
-            // Attempt autoplay (muted to bypass browser restrictions)
-            video.play().catch(err => {
-              console.warn('⚠️ Autoplay blocked by browser:', err.message);
-              // Show play button overlay for user interaction
-              setShowPlayButton(true);
-            });
+            // Attempt autoplay with progressive enhancement
+            const attemptAutoplay = async () => {
+              try {
+                // Always mute first for best autoplay support
+                video.muted = true;
+                await video.play();
+                console.log('✅ Autoplay successful');
+              } catch (err) {
+                console.warn('⚠️ Autoplay blocked:', err.message);
+                // Show play button for user interaction
+                setShowPlayButton(true);
+                // Try playing again on any user interaction
+                const handleUserInteraction = async () => {
+                  try {
+                    await video.play();
+                    // Cleanup after successful play
+                    ['click', 'touchstart', 'keydown'].forEach(type =>
+                      document.removeEventListener(type, handleUserInteraction)
+                    );
+                    setShowPlayButton(false);
+                  } catch (innerErr) {
+                    console.error('Failed to play after user interaction:', innerErr);
+                  }
+                };
+                // Listen for any user interaction
+                ['click', 'touchstart', 'keydown'].forEach(type =>
+                  document.addEventListener(type, handleUserInteraction, { once: true })
+                );
+              }
+            };
+            attemptAutoplay();
           });
 
           // Buffer health monitoring
@@ -257,12 +286,29 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
     const video = videoRef.current;
     if (video) {
       try {
+        // Ensure muted state for first playback
+        video.muted = true;
         await video.play();
         setShowPlayButton(false);
         console.log('✅ Video playback started after user interaction');
+
+        // After successful play, we can try unmuting if needed
+        const unmuteIfAllowed = async () => {
+          try {
+            video.muted = false;
+            // If unmuting fails, revert to muted
+            await video.play().catch(() => {
+              video.muted = true;
+            });
+          } catch (err) {
+            // Keep muted if unmuting fails
+            video.muted = true;
+          }
+        };
+        unmuteIfAllowed();
       } catch (err) {
         console.error('Failed to start playback:', err);
-        setError('Unable to start video playback');
+        setError('Unable to start video playback. Please ensure autoplay is allowed.');
       }
     }
   };
@@ -276,6 +322,9 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
         playsInline
         muted
         autoPlay
+        webkit-playsinline="true"
+        x-webkit-airplay="allow"
+        preload="auto"
       />
 
       {/* Loading Overlay */}
