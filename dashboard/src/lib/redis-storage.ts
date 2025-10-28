@@ -14,7 +14,7 @@ export class RedisStorage {
   }
 
   constructor() {
-    this.keyPrefix = process.env.REDIS_KEY_PREFIX || 'Radar04';
+    this.keyPrefix = process.env.REDIS_KEY_PREFIX || 'P1-center';
   }
 
   /**
@@ -112,17 +112,17 @@ export class RedisStorage {
    */
   public async storePassData(data: ProcessedPassData): Promise<void> {
     try {
-      const key = this.getDeviceKey('passdata');
+      const key = this.getDeviceKey('passdata'); // Use lowercase to match actual Redis key
       const value = JSON.stringify(data);
-      
+
       // Store with TTL of 2 hours (7200 seconds) - events are less frequent
       const client = await getRedisClient();
       await client.lPush(key, value);
       await client.expire(key, 7200);
-      
+
       // Keep only last 500 entries
       await client.lTrim(key, 0, 499);
-      
+
       console.log(`Stored Pass Data: Lane ${data.laneNumber}`);
     } catch (error) {
       console.error('Error storing Pass Data:', error);
@@ -214,7 +214,7 @@ export class RedisStorage {
   public async getLatestPassData(limit: number = 10): Promise<ProcessedPassData[]> {
     try {
       const client = await getRedisClient();
-      const key = `${this.keyPrefix}/passdata`;
+      const key = `${this.keyPrefix}/passdata`; // Use lowercase to match actual Redis key
       // Get the latest entries from the end of the list
       const data = await client.lRange(key, -limit, -1);
       
@@ -229,7 +229,9 @@ export class RedisStorage {
           for (const entry of rawData.entries) {
             processedData.push({
               deviceId: rawData.deviceId,
-              timestamp: new Date(entry.passing?.time || rawData.timestamp),
+              // Use frame timestamp (when Node-RED processed) for consistency
+              // NOT entry.passing.time (vehicle passing time - older by ~4 minutes)
+              timestamp: new Date(rawData.timestamp),
               laneNumber: entry.lane?.number || 0,
               crossSectionPosition: entry.crossSection?.position || 0,
               crossSectionSpeed: entry.crossSection?.speed || 0,
@@ -412,7 +414,7 @@ export class RedisStorage {
   public async getDevicePassData(deviceId: string, limit: number = 5): Promise<ProcessedPassData[]> {
     try {
       const client = await getRedisClient();
-      const key = `${deviceId}/passdata`;
+      const key = `${deviceId}/passdata`; // Use lowercase to match actual Redis key
       const data = await client.lRange(key, 0, limit - 1);
       return data.map((item: string) => JSON.parse(item));
     } catch (error) {
@@ -496,7 +498,7 @@ export class RedisStorage {
       const keys = [
         this.getDeviceKey('objectdata'),
         this.getDeviceKey('lanestatus'),
-        this.getDeviceKey('passdata'),
+        this.getDeviceKey('passdata'), // Use lowercase to match actual Redis key
         this.getDeviceKey('trafficdata'),
         this.getDeviceKey('regiondata')
       ];

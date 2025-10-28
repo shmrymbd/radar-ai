@@ -25,11 +25,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Create `dashboard/.env.local` with:
 ```bash
 # Redis Configuration
-REDIS_HOST=192.168.1.71
+REDIS_HOST=192.168.6.22
 REDIS_PORT=6379
 
 # MongoDB Configuration
-MONGODB_HOST=192.168.1.71
+MONGODB_HOST=192.168.6.22
 MONGODB_PORT=27017
 MONGODB_USERNAME=admin
 MONGODB_PASSWORD=admin123
@@ -89,6 +89,8 @@ As of 2025-10-27, the classification system uses a **MongoDB-first architecture*
 - NO Redis polling or in-memory caching
 - ClassificationProcessor is now a minimal shell (187 lines)
 - Data flow: Redis → PassDataSubscriber → MongoDB → API Routes
+
+**PassData Timestamp Change (2025-10-28)**: MongoDB now stores **frame processing timestamps** (`passData.timestamp`) instead of vehicle passing times (`entry.passing.time`) for real-time appearance in the dashboard. This reduces displayed timestamp delays from 4+ minutes to seconds. See `dashboard/PASSDATA_TIMESTAMP_CHANGE.md` for full details.
 
 **Breaking Changes:**
 - All ClassificationProcessor instance methods are deprecated

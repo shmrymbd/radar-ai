@@ -14,6 +14,7 @@ export class PassDataSubscriber {
   private dataClient: RedisClientType | null = null;
   private deviceIds: string[];
   private isRunning: boolean = false;
+  private lastProcessedTimestamp: Map<string, Date> = new Map();
 
   private constructor(deviceIds: string[] = ['P1-center', 'P3', 'P1-o/h']) {
     this.deviceIds = deviceIds;
@@ -39,7 +40,7 @@ export class PassDataSubscriber {
       // Create subscriber client for Pub/Sub
       this.subscriber = createClient({
         socket: {
-          host: process.env.REDIS_HOST || '192.168.1.71',
+          host: process.env.REDIS_HOST || '192.168.6.22',
           port: parseInt(process.env.REDIS_PORT || '6379')
         }
       });
@@ -47,7 +48,7 @@ export class PassDataSubscriber {
       // Create separate client for data operations
       this.dataClient = createClient({
         socket: {
-          host: process.env.REDIS_HOST || '192.168.1.71',
+          host: process.env.REDIS_HOST || '192.168.6.22',
           port: parseInt(process.env.REDIS_PORT || '6379')
         }
       });
@@ -146,10 +147,34 @@ export class PassDataSubscriber {
     }
 
     try {
-      // Get the latest 10 entries from the passdata list
+      // CRITICAL FIX: Get the NEWEST 10 entries from the end of the list (index -10 to -1)
+      // Radar uses RPUSH which adds to the end, so index -1 is the newest
       const entries = await this.dataClient.lRange(`${deviceId}/passdata`, -10, -1);
 
-      return entries.map(entry => JSON.parse(entry));
+      const parsedEntries = entries.map(entry => JSON.parse(entry));
+
+      // Filter out entries we've already processed based on timestamp
+      const lastTimestamp = this.lastProcessedTimestamp.get(deviceId);
+      if (lastTimestamp) {
+        const filtered = parsedEntries.filter(passData => {
+          const entries = passData.entries || [];
+          if (entries.length === 0) return false;
+
+          // Use frame timestamp (when Node-RED processed) for consistency
+          // NOT entry.passing.time (vehicle passing time - older by ~4 minutes)
+          const entryTime = new Date(passData.timestamp);
+
+          return entryTime > lastTimestamp;
+        });
+
+        if (filtered.length < parsedEntries.length) {
+          console.log(`🔄 Filtered ${parsedEntries.length - filtered.length} already-processed entries for ${deviceId}`);
+        }
+
+        return filtered;
+      }
+
+      return parsedEntries;
 
     } catch (error) {
       console.error(`❌ Error fetching PassData for device ${deviceId}:`, error);
@@ -188,6 +213,9 @@ export class PassDataSubscriber {
 
         return {
           deviceId,
+          // Use frame processing time for more recent timestamps in dashboard
+          // passData.timestamp = when Node-RED processed the frame (more recent)
+          // entry.passing.time = when vehicle actually passed (older by ~4 minutes)
           timestamp: new Date(passData.timestamp),
           laneNumber: entry.lane?.number || 0,
           crossSectionPosition: entry.crossSection?.position || 0,
@@ -196,16 +224,40 @@ export class PassDataSubscriber {
           occupancyDuration: entry.passing?.occupancyDuration || 0,
           occupancyStatus: entry.passing?.occupancyStatus || 'Unknown',
           vehicleType,
-          // Store raw data for reference
-          rawData: passData,
-          processedAt: new Date()
+          processedAt: new Date(),
+          source: 'passdata_subscriber'
         };
       }).filter(doc => doc !== null);
 
       if (documents.length > 0) {
         // Use insertMany with ordered:false to continue on duplicates
-        await collection.insertMany(documents, { ordered: false });
-        console.log(`💾 Wrote ${documents.length} PassData entries to MongoDB for device: ${deviceId}`);
+        try {
+          const result = await collection.insertMany(documents, { ordered: false });
+          console.log(`💾 Wrote ${result.insertedCount} PassData entries to MongoDB for device: ${deviceId}`);
+
+          // Update last processed timestamp to the newest entry's timestamp
+          const timestamps = documents.map(doc => doc.timestamp);
+          const latestTimestamp = new Date(Math.max(...timestamps.map(t => t.getTime())));
+          this.lastProcessedTimestamp.set(deviceId, latestTimestamp);
+
+        } catch (insertError: any) {
+          // Handle partial success with duplicate key errors
+          if (insertError.code === 11000 || insertError.writeErrors) {
+            const insertedCount = insertError.result?.insertedCount || 0;
+            if (insertedCount > 0) {
+              console.log(`💾 Wrote ${insertedCount} PassData entries to MongoDB for device: ${deviceId} (${documents.length - insertedCount} duplicates skipped)`);
+
+              // Still update timestamp even with duplicates
+              const timestamps = documents.map(doc => doc.timestamp);
+              const latestTimestamp = new Date(Math.max(...timestamps.map(t => t.getTime())));
+              this.lastProcessedTimestamp.set(deviceId, latestTimestamp);
+            } else {
+              console.log(`📝 All ${documents.length} PassData entries already exist in MongoDB for ${deviceId}`);
+            }
+          } else {
+            throw insertError;
+          }
+        }
       }
 
     } catch (error: any) {
