@@ -120,15 +120,18 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
     });
   }, [virtualizationEnabled, visibleDataRange, historicalData.length]);
 
-  // Helper function to parse timeSlot format "YYYY-MM-DD-HH-MM" to Date (UTC+8)
-  const parseTimeSlot = (timeSlot: string): Date => {
-    return parseUTC8TimeSlot(timeSlot);
-  };
-
-  // Format UTC+8 time for display
+  // Format time for display - timeSlot format is "YYYY-MM-DD-HH-MM" already in UTC+8
+  // NO timezone conversion needed - just extract HH:MM directly
   const formatTimeDisplay = (timeSlot: string): string => {
-    const date = parseTimeSlot(timeSlot);
-    return formatUTC8Display(date).split(' ')[1].substring(0, 5); // Get HH:MM part
+    // TimeSlot format: "2025-10-28-15-30" -> extract "15:30"
+    const parts = timeSlot.split('-');
+    if (parts.length === 5) {
+      const hour = parts[3].padStart(2, '0');
+      const minute = parts[4].padStart(2, '0');
+      return `${hour}:${minute}`;
+    }
+    // Fallback if format is unexpected
+    return timeSlot;
   };
 
   // Chart export functionality
@@ -199,7 +202,7 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
 
     try {
       const response = await fetch(
-        `/api/classification/historical?deviceId=${deviceId}&timePeriod=${timePeriod}`
+        `/api/classification/historical?deviceId=${deviceId}&timePeriod=${timePeriod}&sortOrder=desc`
       );
 
       if (!response.ok) {
@@ -229,8 +232,8 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
 
     try {
       const [response1, response2] = await Promise.all([
-        fetch(`/api/classification/historical?deviceId=${deviceId}&timePeriod=${comparePeriod1}`),
-        fetch(`/api/classification/historical?deviceId=${deviceId}&timePeriod=${comparePeriod2}`)
+        fetch(`/api/classification/historical?deviceId=${deviceId}&timePeriod=${comparePeriod1}&sortOrder=desc`),
+        fetch(`/api/classification/historical?deviceId=${deviceId}&timePeriod=${comparePeriod2}&sortOrder=desc`)
       ]);
 
       if (!response1.ok || !response2.ok) {
@@ -262,9 +265,10 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
     const dataToRender = getVirtualizedData();
     if (dataToRender.length === 0) return <div>No data available</div>;
 
+    // Data is already sorted by API with sortOrder=desc (newest first)
     const vehicleTypes = ['car', 'suv', 'truck', 'motorcycle', 'van'];
     const maxCount = Math.max(...dataToRender.map(d => d.totalVehicles));
-    
+
     console.log('Histogram chart data:', dataToRender.length, 'records, maxCount:', maxCount);
 
     return (
@@ -352,6 +356,7 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
   const renderHeatmapChart = () => {
     if (historicalData.length === 0) return <div>No data available</div>;
 
+    // Data is already sorted by API with sortOrder=desc (newest first)
     const vehicleTypes = ['car', 'suv', 'truck', 'motorcycle', 'van'];
     const maxCount = Math.max(...historicalData.map(d => d.totalVehicles));
 

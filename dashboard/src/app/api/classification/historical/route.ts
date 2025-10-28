@@ -229,14 +229,29 @@ async function aggregatePassDataHistorically(
           speed: '$crossSectionSpeed',
           laneNum: '$laneNumber',
           timestamp: 1,
-          year: { $year: '$timestamp' },
-          month: { $month: '$timestamp' },
-          day: { $dayOfMonth: '$timestamp' },
-          hour: { $hour: '$timestamp' },
+          // Convert UTC timestamp to UTC+8 (Asia/Kuala_Lumpur) for grouping
+          // Add 8 hours in milliseconds (8 * 60 * 60 * 1000 = 28800000)
+          localTimestamp: {
+            $add: ['$timestamp', 28800000]
+          }
+        }
+      },
+      {
+        $project: {
+          deviceId: 1,
+          vehicleType: 1,
+          speed: 1,
+          laneNum: 1,
+          timestamp: 1,
+          // Extract date components from local timestamp (UTC+8)
+          year: { $year: '$localTimestamp' },
+          month: { $month: '$localTimestamp' },
+          day: { $dayOfMonth: '$localTimestamp' },
+          hour: { $hour: '$localTimestamp' },
           // Round minutes to nearest 15-minute interval (0, 15, 30, 45)
           minute: {
             $multiply: [
-              { $floor: { $divide: [{ $minute: '$timestamp' }, 15] } },
+              { $floor: { $divide: [{ $minute: '$localTimestamp' }, 15] } },
               15
             ]
           }
