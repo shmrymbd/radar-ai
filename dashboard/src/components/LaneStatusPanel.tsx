@@ -62,8 +62,8 @@ export default function LaneStatusPanel({ compact = false }: LaneStatusPanelProp
             )}
           </div>
         ) : (
-          // Lane Cards - 2-column grid for compact mode
-          <div className={compact ? 'grid grid-cols-2 gap-3' : 'space-y-4'}>
+          // Lane Cards - 3-column grid for compact mode, single column for regular
+          <div className={compact ? 'grid grid-cols-3 gap-2' : 'space-y-4'}>
             {laneStatus.map((lane, index) => (
               <LaneStatusCard key={`lane-${lane.lane.number}-${index}`} data={lane} compact={compact} />
             ))}

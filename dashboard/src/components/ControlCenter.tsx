@@ -26,7 +26,7 @@ export default function ControlCenter() {
           </div>
 
           {/* SECONDARY COLUMN (40%) - Right Side */}
-          <div className="flex flex-col gap-6 overflow-y-auto">
+          <div className="flex flex-col gap-6 overflow-hidden">
             {/* Radar Analysis Card - Compact */}
             <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden max-h-96">
               <RadarAnalysisCard
@@ -36,8 +36,8 @@ export default function ControlCenter() {
               />
             </div>
 
-            {/* Lane Status Panel - Compact Grid */}
-            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden max-h-80">
+            {/* Lane Status Panel - Flexible height to fill available space */}
+            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden flex-1 min-h-0">
               <LaneStatusPanel compact />
             </div>
           </div>
