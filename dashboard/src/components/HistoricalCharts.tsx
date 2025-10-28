@@ -266,7 +266,12 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
     if (dataToRender.length === 0) return <div>No data available</div>;
 
     // Data is already sorted by API with sortOrder=desc (newest first)
-    const vehicleTypes = ['car', 'suv', 'truck', 'motorcycle', 'van'];
+    // All 15 vehicle types from ClairWav Protocol V2.1 (codes 0-14)
+    const vehicleTypes = [
+      'other', 'bicycle', 'motorcycle', 'tricycle', 'bus', 'van', 'car', 'suv',
+      'large_truck', 'medium_truck', 'light_truck', 'dangerous_goods',
+      'engineering_vehicle', 'pedestrian', 'medium_bus'
+    ];
     const maxCount = Math.max(...dataToRender.map(d => d.totalVehicles));
 
     console.log('Histogram chart data:', dataToRender.length, 'records, maxCount:', maxCount);
@@ -357,38 +362,84 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
     if (historicalData.length === 0) return <div>No data available</div>;
 
     // Data is already sorted by API with sortOrder=desc (newest first)
-    const vehicleTypes = ['car', 'suv', 'truck', 'motorcycle', 'van'];
+    // All 15 vehicle types from ClairWav Protocol V2.1 (codes 0-14)
+    const vehicleTypes = [
+      'other', 'bicycle', 'motorcycle', 'tricycle', 'bus', 'van', 'car', 'suv',
+      'large_truck', 'medium_truck', 'light_truck', 'dangerous_goods',
+      'engineering_vehicle', 'pedestrian', 'medium_bus'
+    ];
     const maxCount = Math.max(...historicalData.map(d => d.totalVehicles));
 
     return (
       <div className="space-y-4">
         <h3 className="text-lg font-semibold">Traffic Density Heatmap</h3>
+
+        {/* Explanation Section */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
+          <div className="flex items-start space-x-2">
+            <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div className="space-y-2">
+              <p className="font-semibold text-blue-900">How to Read This Heatmap:</p>
+              <ul className="list-disc list-inside space-y-1 text-blue-800">
+                <li><strong>Rows (Time):</strong> Each row represents a 15-minute time interval in UTC+8 timezone (e.g., 23:30 = 11:30 PM)</li>
+                <li><strong>Columns (Vehicle Types):</strong> Shows different vehicle categories detected by the radar system</li>
+                <li><strong>Numbers:</strong> Actual count of vehicles that passed during that time period</li>
+                <li><strong>Colors:</strong> Intensity indicates traffic density compared to peak periods:
+                  <div className="flex flex-wrap gap-2 mt-1 ml-4">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-red-500 text-white text-xs">High (>80%)</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-orange-500 text-white text-xs">Moderate-High (60-80%)</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-yellow-500 text-white text-xs">Medium (40-60%)</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-green-500 text-white text-xs">Low-Medium (20-40%)</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-400 text-white text-xs">Very Low (&lt;20%)</span>
+                  </div>
+                </li>
+              </ul>
+              <p className="text-blue-700 italic mt-2">
+                <strong>Example:</strong> If you see "258" in a golden/orange cell under "Car" at 23:30, it means 258 cars passed through this intersection between 11:30-11:45 PM, which represents high traffic for that time period.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th className="border p-2 text-left">Time</th>
+                <th className="border p-2 text-left bg-gray-100">
+                  <div className="font-semibold">Time</div>
+                  <div className="text-xs font-normal text-gray-600">15-min intervals (UTC+8)</div>
+                </th>
                 {vehicleTypes.map(type => (
-                  <th key={type} className="border p-2 text-center capitalize">{type}</th>
+                  <th key={type} className="border p-2 text-center capitalize bg-gray-100">
+                    <div className="font-semibold">{type}</div>
+                    <div className="text-xs font-normal text-gray-600">Vehicle count</div>
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {historicalData.map((data, index) => (
                 <tr key={index}>
-                  <td className="border p-2 text-sm">
+                  <td className="border p-2 text-sm font-medium bg-gray-50">
                     {formatTimeDisplay(data.timeSlot)} (UTC+8)
                   </td>
                   {vehicleTypes.map(type => {
                     const count = data.vehicleTypes[type as keyof typeof data.vehicleTypes];
                     const intensity = maxCount > 0 ? (count / maxCount) * 100 : 0;
-                    const bgColor = intensity > 80 ? 'bg-red-500' : 
-                                   intensity > 60 ? 'bg-orange-500' : 
-                                   intensity > 40 ? 'bg-yellow-500' : 
+                    const bgColor = intensity > 80 ? 'bg-red-500' :
+                                   intensity > 60 ? 'bg-orange-500' :
+                                   intensity > 40 ? 'bg-yellow-500' :
                                    intensity > 20 ? 'bg-green-500' : 'bg-gray-200';
-                    
+                    const textColor = intensity > 20 ? 'text-white' : 'text-gray-600';
+
                     return (
-                      <td key={type} className={`border p-2 text-center ${bgColor} text-white font-medium`}>
+                      <td
+                        key={type}
+                        className={`border p-2 text-center ${bgColor} ${textColor} font-medium transition-colors`}
+                        title={`${count} ${type}(s) detected at ${formatTimeDisplay(data.timeSlot)} (${intensity.toFixed(1)}% of peak traffic)`}
+                      >
                         {count}
                       </td>
                     );
@@ -397,6 +448,40 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Summary Statistics */}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <h4 className="font-semibold mb-3">Summary Statistics</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-gray-600">Total Time Periods:</p>
+              <p className="text-xl font-bold text-gray-900">{historicalData.length}</p>
+            </div>
+            <div>
+              <p className="text-gray-600">Peak Period Traffic:</p>
+              <p className="text-xl font-bold text-gray-900">{maxCount} vehicles</p>
+            </div>
+            <div>
+              <p className="text-gray-600">Total Vehicles:</p>
+              <p className="text-xl font-bold text-gray-900">
+                {historicalData.reduce((sum, d) => sum + d.totalVehicles, 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-600">Average per Period:</p>
+              <p className="text-xl font-bold text-gray-900">
+                {Math.round(historicalData.reduce((sum, d) => sum + d.totalVehicles, 0) / historicalData.length)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Data Source Info */}
+        <div className="text-xs text-gray-500 italic">
+          <p>📊 Data source: Real-time radar detection system (ClairWav-T80) aggregated into 15-minute intervals</p>
+          <p>🕐 Timezone: UTC+8 (Asia/Kuala Lumpur)</p>
+          <p>🔄 Data updated continuously from MongoDB PassData collection</p>
         </div>
       </div>
     );
@@ -580,7 +665,12 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
       return <div>No data available for comparison</div>;
     }
 
-    const vehicleTypes = ['car', 'suv', 'truck', 'motorcycle', 'van'];
+    // All 15 vehicle types from ClairWav Protocol V2.1 (codes 0-14)
+    const vehicleTypes = [
+      'other', 'bicycle', 'motorcycle', 'tricycle', 'bus', 'van', 'car', 'suv',
+      'large_truck', 'medium_truck', 'light_truck', 'dangerous_goods',
+      'engineering_vehicle', 'pedestrian', 'medium_bus'
+    ];
 
     // Calculate aggregated totals for each period
     const period1Totals = vehicleTypes.reduce((acc, type) => {
@@ -716,13 +806,29 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
       return <div>No data available for composition analysis</div>;
     }
 
-    const vehicleTypes = ['car', 'suv', 'truck', 'motorcycle', 'van'];
-    const colors = {
-      car: '#3B82F6',
-      suv: '#10B981', 
-      truck: '#F59E0B',
-      motorcycle: '#EF4444',
-      van: '#8B5CF6'
+    // All 15 vehicle types from ClairWav Protocol V2.1 (codes 0-14)
+    const vehicleTypes = [
+      'other', 'bicycle', 'motorcycle', 'tricycle', 'bus', 'van', 'car', 'suv',
+      'large_truck', 'medium_truck', 'light_truck', 'dangerous_goods',
+      'engineering_vehicle', 'pedestrian', 'medium_bus'
+    ];
+    // Colors based on ClairWav Protocol vehicle classification
+    const colors: Record<string, string> = {
+      other: '#6B7280',              // Gray
+      bicycle: '#4ADE80',            // Green-light
+      motorcycle: '#10B981',         // Green
+      tricycle: '#84CC16',           // Lime
+      bus: '#F59E0B',                // Orange
+      van: '#8B5CF6',                // Purple
+      car: '#3B82F6',                // Blue
+      suv: '#06B6D4',                // Cyan
+      large_truck: '#EF4444',        // Red
+      medium_truck: '#F97316',       // Orange-red
+      light_truck: '#FB923C',        // Orange-light
+      dangerous_goods: '#DC2626',    // Dark red
+      engineering_vehicle: '#FACC15', // Yellow
+      pedestrian: '#A855F7',         // Violet
+      medium_bus: '#FBBF24'          // Amber
     };
 
     // Calculate cumulative totals over time
