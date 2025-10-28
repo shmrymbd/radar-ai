@@ -810,104 +810,59 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
   // Lane Utilization Heatmaps (task 5.4)
   const renderLaneHeatmapChart = () => {
     if (historicalData.length === 0) {
-      return <div>No data available for lane heatmap analysis</div>;
+      return <div className="text-center p-8 text-gray-500">No data available for lane heatmap analysis</div>;
     }
 
-    const lanes = ['lane11', 'lane12', 'lane31', 'lane32'];
-    const laneLabels = {
-      lane11: 'Lane 11',
-      lane12: 'Lane 12', 
-      lane31: 'Lane 31',
-      lane32: 'Lane 32'
-    };
-
-    // Calculate max utilization for color scaling
-    const maxUtilization = Math.max(...historicalData.flatMap(d => 
-      lanes.map(lane => d.laneUtilization[lane as keyof typeof d.laneUtilization] || 0)
-    ));
-
+    // Note: Lane utilization heatmap requires lane-specific data, not aggregated totals
+    // Display total vehicle count per time slot as a fallback
     return (
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Lane Utilization Heatmap</h3>
-        
-        {/* Heatmap Grid */}
-        <div className="bg-white p-4 rounded-lg border">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className="text-left p-2 font-medium">Time</th>
-                  {lanes.map(lane => (
-                    <th key={lane} className="text-center p-2 font-medium">
-                      {laneLabels[lane as keyof typeof laneLabels]}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {historicalData.map((d, index) => (
-                  <tr key={index}>
-                    <td className="p-2 text-sm font-medium">
-                      {formatTimeDisplay(d.timeSlot)}
-                    </td>
-                    {lanes.map(lane => {
-                      const utilization = d.laneUtilization[lane as keyof typeof d.laneUtilization] || 0;
-                      const intensity = maxUtilization > 0 ? utilization / maxUtilization : 0;
-                      const colorIntensity = Math.floor(intensity * 255);
-                      const bgColor = `rgba(59, 130, 246, ${intensity})`;
-                      
-                      return (
-                        <td 
-                          key={lane}
-                          className="text-center p-2 text-sm font-medium"
-                          style={{ backgroundColor: bgColor }}
-                          title={`${laneLabels[lane as keyof typeof laneLabels]}: ${utilization.toFixed(1)}%`}
-                        >
-                          {utilization.toFixed(0)}%
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+        <div className="flex items-start space-x-3">
+          <div className="flex-shrink-0">
+            <svg className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
-        </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-yellow-800 mb-2">Lane Heatmap Chart Not Available</h3>
+            <p className="text-yellow-700 mb-4">
+              Detailed lane utilization heatmap requires lane-specific vehicle counts.
+              The current data is aggregated across all lanes into 15-minute time slots.
+            </p>
+            <div className="bg-white rounded-lg p-4 border border-yellow-300">
+              <h4 className="font-semibold text-gray-800 mb-3">Total Vehicle Traffic by Time Slot</h4>
+              <div className="space-y-2">
+                {historicalData.slice(0, 20).map((data, index) => {
+                  const maxVehicles = Math.max(...historicalData.map(d => d.totalVehicles));
+                  const intensity = maxVehicles > 0 ? data.totalVehicles / maxVehicles : 0;
+                  const bgColor = `rgba(59, 130, 246, ${intensity * 0.7})`;
 
-        {/* Color Scale Legend */}
-        <div className="flex items-center justify-center space-x-4">
-          <span className="text-sm text-gray-600">Low</span>
-          <div className="flex space-x-1">
-            {[0, 0.25, 0.5, 0.75, 1].map(intensity => (
-              <div
-                key={intensity}
-                className="w-8 h-4 rounded"
-                style={{ backgroundColor: `rgba(59, 130, 246, ${intensity})` }}
-              />
-            ))}
-          </div>
-          <span className="text-sm text-gray-600">High</span>
-        </div>
-
-        {/* Lane Summary */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {lanes.map(lane => {
-            const avgUtilization = historicalData.reduce((sum, d) => 
-              sum + (d.laneUtilization[lane as keyof typeof d.laneUtilization] || 0), 0
-            ) / historicalData.length;
-            
-            return (
-              <div key={lane} className="bg-gray-50 p-3 rounded-lg text-center">
-                <div className="text-lg font-bold text-blue-600">
-                  {avgUtilization.toFixed(1)}%
-                </div>
-                <div className="text-sm text-gray-600">
-                  {laneLabels[lane as keyof typeof laneLabels]}
-                </div>
-                <div className="text-xs text-gray-500">Avg Utilization</div>
+                  return (
+                    <div
+                      key={index}
+                      className="flex justify-between items-center p-3 rounded"
+                      style={{ backgroundColor: bgColor }}
+                    >
+                      <span className="text-sm font-medium">{data.timeSlot}</span>
+                      <div className="flex items-center space-x-4">
+                        <span className="text-sm font-bold">{data.totalVehicles} vehicles</span>
+                        <span className="text-xs text-gray-600">{data.averageSpeed.toFixed(1)} km/h avg</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+              {historicalData.length > 20 && (
+                <p className="text-xs text-gray-500 mt-3 text-center">
+                  Showing 20 of {historicalData.length} time slots
+                </p>
+              )}
+            </div>
+            <div className="mt-4 text-sm text-yellow-700">
+              <strong>Note:</strong> To enable lane heatmap charts, modify the aggregation pipeline to group data by
+              both time slot and lane number, or query the PassData collection with lane-specific filters.
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -916,36 +871,52 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
   // Speed Distribution Histograms (task 5.5)
   const renderSpeedDistChart = () => {
     if (historicalData.length === 0) {
-      return <div>No data available for speed distribution analysis</div>;
+      return <div className="text-center p-8 text-gray-500">No data available for speed distribution analysis</div>;
     }
 
-    const vehicleTypes = ['car', 'suv', 'truck', 'motorcycle', 'van'];
-    const speedRanges = [
-      { label: '0-20', min: 0, max: 20, color: '#EF4444' },
-      { label: '20-40', min: 20, max: 40, color: '#F59E0B' },
-      { label: '40-60', min: 40, max: 60, color: '#10B981' },
-      { label: '60-80', min: 60, max: 80, color: '#3B82F6' },
-      { label: '80+', min: 80, max: 200, color: '#8B5CF6' }
-    ];
-
-    // Calculate speed distribution for each vehicle type
-    const speedDistribution = vehicleTypes.map(type => {
-      const speeds = historicalData.flatMap(d => 
-        d.speedAnalysis.speedDistribution.filter(s => s.vehicleType === type)
-      );
-      
-      return {
-        type,
-        distribution: speedRanges.map(range => {
-          const count = speeds.filter(s => s.speed >= range.min && s.speed < range.max).length;
-          return { range: range.label, count, color: range.color };
-        })
-      };
-    });
-
-    const maxCount = Math.max(...speedDistribution.flatMap(sd => 
-      sd.distribution.map(d => d.count)
-    ));
+    // Note: Speed distribution requires individual vehicle speed data, not aggregated averages
+    // Display average speeds instead as a fallback
+    return (
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+        <div className="flex items-start space-x-3">
+          <div className="flex-shrink-0">
+            <svg className="h-6 w-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-yellow-800 mb-2">Speed Distribution Chart Not Available</h3>
+            <p className="text-yellow-700 mb-4">
+              Detailed speed distribution analysis requires individual vehicle speed records.
+              The current data is aggregated into 15-minute time slots with average speeds only.
+            </p>
+            <div className="bg-white rounded-lg p-4 border border-yellow-300">
+              <h4 className="font-semibold text-gray-800 mb-3">Average Speeds by Time Slot</h4>
+              <div className="space-y-2">
+                {historicalData.slice(0, 10).map((data, index) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span className="text-sm text-gray-600">{data.timeSlot}</span>
+                    <div className="flex items-center space-x-4">
+                      <span className="text-sm font-medium">{data.averageSpeed.toFixed(1)} km/h</span>
+                      <span className="text-xs text-red-600">{data.speedViolations} violations</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {historicalData.length > 10 && (
+                <p className="text-xs text-gray-500 mt-3 text-center">
+                  Showing 10 of {historicalData.length} time slots
+                </p>
+              )}
+            </div>
+            <div className="mt-4 text-sm text-yellow-700">
+              <strong>Note:</strong> To enable detailed speed distribution charts, implement real-time speed
+              bucketing in the aggregation pipeline or query individual PassData records.
+            </div>
+          </div>
+        </div>
+      </div>
+    );
 
     return (
       <div className="space-y-4">

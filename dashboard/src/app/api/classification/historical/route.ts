@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ClassificationProcessor } from '@/lib/classification-processor';
+import { ClassificationHistoryStorage } from '@/lib/classification-history-storage';
 import { TimePeriodFilter } from '@/types/classification-history';
 import { getClassificationCache } from '@/lib/classification-cache';
 import { getApiRateLimiter } from '@/lib/rate-limiter';
 import { getPerformanceMonitor } from '@/lib/performance-monitor';
+import { connectToDatabase } from '@/lib/mongodb';
 
-const classificationProcessor = ClassificationProcessor.getInstance();
+// Use MongoDB storage directly instead of deprecated processor
+const historyStorage = new ClassificationHistoryStorage();
 const cache = getClassificationCache();
 const rateLimiter = getApiRateLimiter();
 const monitor = getPerformanceMonitor();
@@ -15,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const deviceId = searchParams.get('deviceId') || 'test';
+    const deviceId = searchParams.get('deviceId') || 'P1-center';
     const timePeriod = searchParams.get('timePeriod') || '24hrs';
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '100', 10);
@@ -100,12 +102,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get historical data with pagination
-    const result = await classificationProcessor.getHistoricalChartData(
+    // Try to get historical data from classification_history collection
+    let result = await historyStorage.getHistoricalData(
       deviceId,
       timeFilter,
       { page, limit, sortBy, sortOrder }
     );
+
+    // If no historical data exists, aggregate from PassData on-the-fly
+    if (!result.data || result.data.length === 0) {
+      console.log(`📊 No historical data found for ${deviceId}, aggregating from PassData...`);
+      result = await aggregatePassDataHistorically(deviceId, timeFilter, { page, limit, sortBy, sortOrder });
+    }
 
     // Cache the result (5 minutes TTL)
     cache.set(deviceId, timePeriod, result, cacheKey, 5 * 60 * 1000);
@@ -154,7 +162,7 @@ function createTimeFilter(timePeriod: string): TimePeriodFilter {
   const now = new Date();
   let startDate: Date;
   let endDate: Date = now;
-  
+
   switch (timePeriod) {
     case '24hrs':
       startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -173,10 +181,216 @@ function createTimeFilter(timePeriod: string): TimePeriodFilter {
     default:
       startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   }
-  
+
   return {
     type: timePeriod as '24hrs' | 'yesterday' | 'month',
     startDate,
     endDate
   };
+}
+
+/**
+ * Aggregate PassData from MongoDB into 15-minute time slots for historical charts
+ * This is a fallback when no pre-aggregated data exists in classification_history collection
+ */
+async function aggregatePassDataHistorically(
+  deviceId: string,
+  timeFilter: TimePeriodFilter,
+  options?: {
+    page?: number;
+    limit?: number;
+    sortBy?: 'timestamp' | 'totalVehicles';
+    sortOrder?: 'asc' | 'desc';
+  }
+) {
+  try {
+    const db = await connectToDatabase();
+    const passdataCollection = db.collection('passdata');
+
+    const page = options?.page || 1;
+    const limit = options?.limit || 100;
+    const sortOrder = options?.sortOrder === 'desc' ? -1 : 1;
+
+    // Aggregate PassData into 15-minute time slots
+    const pipeline = [
+      {
+        $match: {
+          deviceId,
+          timestamp: {
+            $gte: timeFilter.startDate,
+            $lte: timeFilter.endDate
+          }
+        }
+      },
+      {
+        $project: {
+          deviceId: 1,
+          vehicleType: 1,
+          speed: '$crossSectionSpeed',
+          laneNum: '$laneNumber',
+          timestamp: 1,
+          year: { $year: '$timestamp' },
+          month: { $month: '$timestamp' },
+          day: { $dayOfMonth: '$timestamp' },
+          hour: { $hour: '$timestamp' },
+          // Round minutes to nearest 15-minute interval (0, 15, 30, 45)
+          minute: {
+            $multiply: [
+              { $floor: { $divide: [{ $minute: '$timestamp' }, 15] } },
+              15
+            ]
+          }
+        }
+      },
+      {
+        $project: {
+          deviceId: 1,
+          vehicleType: 1,
+          speed: 1,
+          laneNum: 1,
+          timestamp: 1,
+          // Format as YYYY-MM-DD-HH-MM
+          timeSlot: {
+            $concat: [
+              { $toString: '$year' },
+              '-',
+              { $cond: [
+                { $lt: ['$month', 10] },
+                { $concat: ['0', { $toString: '$month' }] },
+                { $toString: '$month' }
+              ]},
+              '-',
+              { $cond: [
+                { $lt: ['$day', 10] },
+                { $concat: ['0', { $toString: '$day' }] },
+                { $toString: '$day' }
+              ]},
+              '-',
+              { $cond: [
+                { $lt: ['$hour', 10] },
+                { $concat: ['0', { $toString: '$hour' }] },
+                { $toString: '$hour' }
+              ]},
+              '-',
+              { $cond: [
+                { $lt: ['$minute', 10] },
+                { $concat: ['0', { $toString: '$minute' }] },
+                { $toString: '$minute' }
+              ]}
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: '$timeSlot',
+          totalVehicles: { $sum: 1 },
+          avgSpeed: { $avg: '$speed' },
+          speedViolations: {
+            $sum: {
+              $cond: [{ $gt: ['$speed', 60] }, 1, 0]
+            }
+          },
+          car: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['car', '6']] }, 1, 0]
+            }
+          },
+          suv: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['suv', '7']] }, 1, 0]
+            }
+          },
+          truck: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['truck', 'large_truck', 'medium_truck', 'light_truck', '8', '9', '10']] }, 1, 0]
+            }
+          },
+          motorcycle: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['motorcycle', '2']] }, 1, 0]
+            }
+          },
+          van: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['van', '5']] }, 1, 0]
+            }
+          },
+          bus: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['bus', 'medium_bus', '4', '14']] }, 1, 0]
+            }
+          },
+          bicycle: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['bicycle', '1']] }, 1, 0]
+            }
+          },
+          pedestrian: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['pedestrian', '13']] }, 1, 0]
+            }
+          },
+          other: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['other', 'tricycle', '0', '3']] }, 1, 0]
+            }
+          }
+        }
+      },
+      {
+        $sort: { _id: sortOrder }
+      },
+      {
+        $skip: (page - 1) * limit
+      },
+      {
+        $limit: limit
+      }
+    ];
+
+    const [data, totalCount] = await Promise.all([
+      passdataCollection.aggregate(pipeline).toArray(),
+      passdataCollection.countDocuments({
+        deviceId,
+        timestamp: {
+          $gte: timeFilter.startDate,
+          $lte: timeFilter.endDate
+        }
+      })
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      data: data.map((item: any) => ({
+        timeSlot: item._id,
+        vehicleTypes: {
+          car: item.car || 0,
+          suv: item.suv || 0,
+          truck: item.truck || 0,
+          motorcycle: item.motorcycle || 0,
+          van: item.van || 0,
+          bus: item.bus || 0,
+          bicycle: item.bicycle || 0,
+          pedestrian: item.pedestrian || 0,
+          other: item.other || 0
+        },
+        totalVehicles: item.totalVehicles || 0,
+        averageSpeed: item.avgSpeed || 0,
+        speedViolations: item.speedViolations || 0
+      })),
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    };
+  } catch (error) {
+    console.error('❌ Error aggregating PassData historically:', error);
+    throw error;
+  }
 }
