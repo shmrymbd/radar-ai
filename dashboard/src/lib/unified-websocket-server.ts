@@ -14,6 +14,8 @@ import { safeValidateWebSocketMessage, WebSocketMessage } from './websocket-mess
 import { TrackingUpdate, VehicleTrackingData } from '@/types/tracking';
 import { ObjectData } from '@/types/radar';
 import { ClassificationMetrics, ClassificationSummary } from '@/types/classification';
+// Initialize PassData subscriber for MongoDB writes
+import './server-init';
 
 const PORT = parseInt(process.env.UNIFIED_WEBSOCKET_PORT || '8080', 10);
 
