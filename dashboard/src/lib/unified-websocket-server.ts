@@ -1,8 +1,16 @@
+// Load environment variables from .env.local
+import { config } from 'dotenv';
+import { resolve } from 'path';
+config({ path: resolve(__dirname, '../../.env.local') });
+
 import { WebSocketServer, WebSocket } from 'ws';
 import { getRedisClient } from './redis';
 import { VehicleTracker } from './vehicle-tracker';
 import { RedisStorage } from './redis-storage';
 import { ClassificationProcessor } from './classification-processor';
+import { RedisPubSubService } from './redis-pubsub-service';
+import { PassDataMongoDBService } from './passdata-mongodb-service';
+import { safeValidateWebSocketMessage, WebSocketMessage } from './websocket-message-schemas';
 import { TrackingUpdate, VehicleTrackingData } from '@/types/tracking';
 import { ObjectData } from '@/types/radar';
 import { ClassificationMetrics, ClassificationSummary } from '@/types/classification';
@@ -13,6 +21,8 @@ interface ClientSubscription {
   ws: WebSocket;
   subscribedChannels: Set<string>;
   deviceId?: string;
+  messageCount: number;
+  messageResetAt: number;
 }
 
 interface VehicleState {
@@ -44,10 +54,16 @@ export class UnifiedWebSocketServer {
   private vehicleTracker: VehicleTracker;
   private redisStorage: RedisStorage;
   private classificationProcessor: ClassificationProcessor;
+  private redisPubSub: RedisPubSubService;
+  private mongoService: PassDataMongoDBService;
 
   // Vehicle tracking state
   private vehicleStates: Map<string, VehicleState> = new Map();
   private isRunning: boolean = false;
+
+  // Global intervals (must be cleared on stop)
+  private trackingInterval: NodeJS.Timeout | null = null;
+  private classificationInterval: NodeJS.Timeout | null = null;
 
   public static getInstance(): UnifiedWebSocketServer {
     if (!UnifiedWebSocketServer.instance) {
@@ -61,7 +77,10 @@ export class UnifiedWebSocketServer {
     this.vehicleTracker = new VehicleTracker();
     this.redisStorage = RedisStorage.getInstance();
     this.classificationProcessor = ClassificationProcessor.getInstance();
+    this.redisPubSub = RedisPubSubService.getInstance();
+    this.mongoService = PassDataMongoDBService.getInstance();
     this.setupWebSocketServer();
+    this.initializePubSub();
   }
 
   // Use the singleton Redis client from lib/redis.ts
@@ -76,12 +95,48 @@ export class UnifiedWebSocketServer {
     }
   }
 
+  // Initialize Redis pub/sub for real-time PassData updates
+  private async initializePubSub() {
+    try {
+      await this.redisPubSub.initialize();
+      console.log('✅ Redis pub/sub service initialized');
+
+      // Register callback to broadcast PassData to WebSocket clients
+      this.redisPubSub.onMessage((deviceId, data) => {
+        // Broadcast to all clients subscribed to this device
+        this.broadcastToDevice(deviceId, {
+          type: 'passdata_update',
+          deviceId,
+          timestamp: new Date().toISOString(),
+          data: data
+        });
+
+        // Also broadcast to classification channel for real-time dashboard updates
+        this.broadcastToChannel('classification', {
+          type: 'passdata_update',
+          deviceId,
+          timestamp: new Date().toISOString(),
+          data: data
+        });
+
+        console.log(`📤 Broadcasted PassData update for ${deviceId} to WebSocket clients and classification channel`);
+      });
+
+      console.log('✅ Redis pub/sub message handler registered');
+    } catch (error) {
+      console.error('❌ Failed to initialize Redis pub/sub:', error);
+      // Don't throw - allow WebSocket server to continue working without pub/sub
+    }
+  }
+
   private setupWebSocketServer() {
     this.wss.on('connection', (ws: WebSocket) => {
       console.log('🔌 New client connected to Unified WebSocket');
       this.clients.set(ws, {
         ws,
-        subscribedChannels: new Set()
+        subscribedChannels: new Set(),
+        messageCount: 0,
+        messageResetAt: Date.now() + 60000 // Reset after 1 minute
       });
 
       // Send initial connection acknowledgment
@@ -93,10 +148,38 @@ export class UnifiedWebSocketServer {
 
       ws.on('message', (message: string) => {
         try {
-          const data = JSON.parse(message);
-          this.handleClientMessage(ws, data);
+          // Check rate limit first
+          if (!this.checkMessageRateLimit(ws)) {
+            this.sendMessage(ws, {
+              type: 'error',
+              message: 'Rate limit exceeded. Maximum 100 messages per minute.'
+            });
+            return;
+          }
+
+          // Parse JSON
+          const rawData = JSON.parse(message);
+
+          // Validate message structure with Zod
+          const validation = safeValidateWebSocketMessage(rawData);
+
+          if (!validation.success || !validation.data) {
+            console.warn('⚠️ Invalid WebSocket message:', validation.error);
+            this.sendMessage(ws, {
+              type: 'error',
+              message: `Invalid message format: ${validation.error || 'Unknown error'}`
+            });
+            return;
+          }
+
+          // Handle validated message (TypeScript now knows data exists)
+          this.handleClientMessage(ws, validation.data);
         } catch (error) {
           console.error('❌ Error parsing client message:', error);
+          this.sendMessage(ws, {
+            type: 'error',
+            message: 'Invalid JSON format'
+          });
         }
       });
 
@@ -122,9 +205,36 @@ export class UnifiedWebSocketServer {
     });
   }
 
-  private handleClientMessage(ws: WebSocket, data: any) {
+  /**
+   * Check per-client message rate limiting
+   * Maximum 100 messages per minute per client
+   */
+  private checkMessageRateLimit(ws: WebSocket): boolean {
+    const client = this.clients.get(ws);
+    if (!client) return false;
+
+    const now = Date.now();
+
+    // Reset counter if window expired
+    if (now > client.messageResetAt) {
+      client.messageCount = 0;
+      client.messageResetAt = now + 60000; // Next minute
+    }
+
+    // Check limit
+    if (client.messageCount >= 100) {
+      console.warn('⚠️ Client exceeded message rate limit');
+      return false;
+    }
+
+    // Increment counter
+    client.messageCount++;
+    return true;
+  }
+
+  private async handleClientMessage(ws: WebSocket, data: WebSocketMessage) {
     console.log('📨 Received message:', data);
-    
+
     const client = this.clients.get(ws);
     if (!client) return;
 
@@ -142,7 +252,7 @@ export class UnifiedWebSocketServer {
 
       // Channel subscriptions
       case 'subscribe_channel':
-        this.subscribeToChannel(ws, data.channel);
+        await this.subscribeToChannel(ws, data.channel);
         break;
       case 'unsubscribe_channel':
         this.unsubscribeFromChannel(ws, data.channel);
@@ -150,7 +260,7 @@ export class UnifiedWebSocketServer {
 
       // Dashboard data requests
       case 'get_dashboard_data':
-        this.sendDashboardData(ws, data.deviceId || 'test');
+        this.sendDashboardData(ws, data.deviceId || 'P1-center');
         break;
 
       // Tracking data requests
@@ -170,7 +280,7 @@ export class UnifiedWebSocketServer {
 
       // Classification data requests
       case 'get_classification_data':
-        this.sendClassificationData(ws);
+        await this.sendClassificationData(ws);
         break;
 
       // Health check
@@ -179,33 +289,35 @@ export class UnifiedWebSocketServer {
         break;
 
       default:
-        console.log('Unknown message type:', data.type);
+        // TypeScript exhaustiveness check - should never reach here
+        const _exhaustiveCheck: never = data;
+        console.log('Unknown message type received');
     }
   }
 
-  private subscribeToChannel(ws: WebSocket, channel: string) {
+  private async subscribeToChannel(ws: WebSocket, channel: string) {
     const client = this.clients.get(ws);
     if (!client) return;
 
     client.subscribedChannels.add(channel);
     console.log(`📡 Client subscribed to channel: ${channel}`);
 
-    this.sendMessage(ws, { 
-      type: 'subscription_confirmed', 
+    this.sendMessage(ws, {
+      type: 'subscription_confirmed',
       channel: channel,
-      message: `Subscribed to ${channel} channel` 
+      message: `Subscribed to ${channel} channel`
     });
 
     // Send initial data for the channel
     switch (channel) {
       case 'dashboard':
-        this.sendDashboardData(ws, client.deviceId || 'test');
+        this.sendDashboardData(ws, client.deviceId || 'P1-center');
         break;
       case 'tracking':
         this.sendTrackingData(ws);
         break;
       case 'classification':
-        this.sendClassificationData(ws);
+        await this.sendClassificationData(ws);
         break;
     }
   }
@@ -224,12 +336,12 @@ export class UnifiedWebSocketServer {
     });
   }
 
-  private subscribeClientToDevice(ws: WebSocket, deviceId: string) {
+  private async subscribeClientToDevice(ws: WebSocket, deviceId: string) {
     const client = this.clients.get(ws);
     if (!client) return;
 
     client.deviceId = deviceId;
-    
+
     // Add client to device's client list
     if (!this.deviceClients.has(deviceId)) {
       this.deviceClients.set(deviceId, new Set());
@@ -237,42 +349,59 @@ export class UnifiedWebSocketServer {
     this.deviceClients.get(deviceId)!.add(ws);
 
     console.log(`📡 Client subscribed to device: ${deviceId}`);
-    
-    this.sendMessage(ws, { 
-      type: 'device_subscription_confirmed', 
+
+    // Subscribe to Redis pub/sub for this device's PassData events
+    try {
+      await this.redisPubSub.subscribeToPassData(deviceId);
+      console.log(`✅ Subscribed to Redis pub/sub for device: ${deviceId}`);
+    } catch (error) {
+      console.error(`❌ Failed to subscribe to Redis pub/sub for ${deviceId}:`, error);
+      // Continue with WebSocket subscription even if pub/sub fails
+    }
+
+    this.sendMessage(ws, {
+      type: 'device_subscription_confirmed',
       deviceId: deviceId,
-      message: `Subscribed to device ${deviceId}` 
+      message: `Subscribed to device ${deviceId}`
     });
 
     // Send initial data for this device
     this.sendDashboardData(ws, deviceId);
-    
+
     // Start device-specific updates if not already running
     this.startDeviceUpdates(deviceId);
   }
 
-  private unsubscribeClientFromDevice(ws: WebSocket, deviceId: string) {
+  private async unsubscribeClientFromDevice(ws: WebSocket, deviceId: string) {
     const client = this.clients.get(ws);
     if (!client) return;
 
     client.deviceId = undefined;
-    
+
     // Remove client from device's client list
     if (this.deviceClients.has(deviceId)) {
       this.deviceClients.get(deviceId)!.delete(ws);
-      
-      // If no clients are subscribed to this device, stop updates
+
+      // If no clients are subscribed to this device, stop updates and unsubscribe from pub/sub
       if (this.deviceClients.get(deviceId)!.size === 0) {
         this.stopDeviceUpdates(deviceId);
+
+        // Unsubscribe from Redis pub/sub for this device
+        try {
+          await this.redisPubSub.unsubscribe(deviceId);
+          console.log(`✅ Unsubscribed from Redis pub/sub for device: ${deviceId}`);
+        } catch (error) {
+          console.error(`❌ Failed to unsubscribe from Redis pub/sub for ${deviceId}:`, error);
+        }
       }
     }
 
     console.log(`📡 Client unsubscribed from device: ${deviceId}`);
-    
-    this.sendMessage(ws, { 
-      type: 'device_unsubscription_confirmed', 
+
+    this.sendMessage(ws, {
+      type: 'device_unsubscription_confirmed',
       deviceId: deviceId,
-      message: `Unsubscribed from device ${deviceId}` 
+      message: `Unsubscribed from device ${deviceId}`
     });
   }
 
@@ -296,13 +425,14 @@ export class UnifiedWebSocketServer {
 
   private sendAvailableDevices(ws: WebSocket) {
     const devices = [
-      { id: 'test', name: 'Test Device', status: 'online' },
-      { id: 'Radar04', name: 'Radar04', status: 'online' }
+      { id: 'P1-center', name: 'P1 Center', status: 'online' },
+      { id: 'P3', name: 'P3 Radar', status: 'online' },
+      { id: 'P1-o/h', name: 'P1 Overhead', status: 'online' }
     ];
-    
-    this.sendMessage(ws, { 
-      type: 'available_devices', 
-      devices: devices 
+
+    this.sendMessage(ws, {
+      type: 'available_devices',
+      devices: devices
     });
   }
 
@@ -342,17 +472,23 @@ export class UnifiedWebSocketServer {
     }
   }
 
-  private sendClassificationData(ws: WebSocket) {
+  private async sendClassificationData(ws: WebSocket) {
     try {
-      const metrics = this.classificationProcessor.getClassificationMetrics();
-      const summary = this.classificationProcessor.getClassificationSummary();
-      
-      this.sendMessage(ws, { 
-        type: 'classification_data', 
+      const client = this.clients.get(ws);
+      const deviceId = client?.deviceId || 'P1-center';
+
+      // Query MongoDB for real-time classification data
+      const metrics = await this.mongoService.getClassificationMetrics(deviceId);
+      const summary = await this.mongoService.getClassificationSummary(deviceId);
+
+      this.sendMessage(ws, {
+        type: 'classification_data',
         data: {
           metrics,
           summary,
-          timestamp: new Date().toISOString()
+          deviceId,
+          timestamp: new Date().toISOString(),
+          source: 'mongodb'
         }
       });
     } catch (error) {
@@ -412,7 +548,7 @@ export class UnifiedWebSocketServer {
   }
 
   private startTrackingUpdates() {
-    setInterval(async () => {
+    this.trackingInterval = setInterval(async () => {
       if (this.isRunning) {
         await this.broadcastTrackingUpdate();
       }
@@ -421,8 +557,8 @@ export class UnifiedWebSocketServer {
 
   private async broadcastTrackingUpdate() {
     try {
-      // Set device prefix to 'test' for now (TODO: make this device-aware)
-      this.redisStorage.setDevicePrefix('test');
+      // Set device prefix to 'P1-center' for now (TODO: make this device-aware)
+      this.redisStorage.setDevicePrefix('P1-center');
 
       // Get latest object data from Redis
       const objectData = await this.redisStorage.getLatestObjectData(1);
@@ -454,26 +590,37 @@ export class UnifiedWebSocketServer {
   }
 
   private startClassificationUpdates() {
-    setInterval(() => {
+    this.classificationInterval = setInterval(() => {
       if (this.isRunning) {
         this.broadcastClassificationUpdate();
       }
     }, 3000); // Update every 3 seconds
   }
 
-  private broadcastClassificationUpdate() {
+  private async broadcastClassificationUpdate() {
     try {
-      const metrics = this.classificationProcessor.getClassificationMetrics();
-      const summary = this.classificationProcessor.getClassificationSummary();
+      // Broadcast for all active devices
+      const activeDevices = Array.from(this.deviceClients.keys());
 
-      this.broadcastToChannel('classification', {
-        type: 'classification_update',
-        data: {
-          metrics,
-          summary,
-          timestamp: new Date().toISOString()
-        }
-      });
+      // If no active devices, broadcast for default device
+      const devices = activeDevices.length > 0 ? activeDevices : ['P1-center'];
+
+      for (const deviceId of devices) {
+        // Query MongoDB for real-time classification data
+        const metrics = await this.mongoService.getClassificationMetrics(deviceId);
+        const summary = await this.mongoService.getClassificationSummary(deviceId);
+
+        this.broadcastToChannel('classification', {
+          type: 'classification_update',
+          data: {
+            metrics,
+            summary,
+            deviceId,
+            timestamp: new Date().toISOString(),
+            source: 'mongodb'
+          }
+        });
+      }
     } catch (error) {
       console.error('Error broadcasting classification update:', error);
     }
@@ -546,7 +693,7 @@ export class UnifiedWebSocketServer {
 
       // Create object data
       const objectData: ObjectData = {
-        deviceId: 'test',
+        deviceId: 'P1-center',
         frameType: '0x01' as const,
         timestamp: currentTime.toISOString(),
         numEntries: entries.length,
@@ -694,7 +841,7 @@ export class UnifiedWebSocketServer {
     return vehicle.y >= 0 && vehicle.y <= 300 && Math.abs(vehicle.x) <= 10;
   }
 
-  private async getLatestDashboardData(deviceId: string = 'test') {
+  private async getLatestDashboardData(deviceId: string = 'P1-center') {
     const client = await this.connectToRedis();
     if (!client) {
       return {
@@ -715,7 +862,7 @@ export class UnifiedWebSocketServer {
     try {
       const objectData = await client.lRange(`${deviceId}/objectdata`, -1, -1);
       const laneStatus = await client.lRange(`${deviceId}/lanestatus`, -1, -1);
-      const passEvents = await client.lRange(`${deviceId}/passdata`, -5, -1);
+      const passEvents = await client.lRange(`${deviceId}/passdata`, -5, -1); // Use lowercase to match actual Redis key
 
       const parsedObjectData = objectData.length > 0 ? JSON.parse(objectData[0]) : null;
       const parsedLaneStatus = laneStatus.length > 0 ? JSON.parse(laneStatus[0]) : null;
@@ -828,17 +975,26 @@ export class UnifiedWebSocketServer {
 
   public stop(): void {
     this.isRunning = false;
-    
+
     // Stop all device-specific intervals
     for (const [deviceId, interval] of this.updateIntervals) {
       clearInterval(interval);
     }
     this.updateIntervals.clear();
-    
-    if (this.redisClient) {
-      this.redisClient.disconnect();
+
+    // Clear global intervals
+    if (this.trackingInterval) {
+      clearInterval(this.trackingInterval);
+      this.trackingInterval = null;
     }
-    
+
+    if (this.classificationInterval) {
+      clearInterval(this.classificationInterval);
+      this.classificationInterval = null;
+    }
+
+    // Redis connection is managed by the singleton, no need to disconnect here
+
     this.wss.close(() => {
       console.log('🛑 Unified WebSocket server stopped');
     });
