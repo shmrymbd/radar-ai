@@ -15,11 +15,19 @@ This project processes real-time radar data from ClairWav-T80 systems to provide
 
 ### Backend
 - **Framework**: Next.js 15.1.8 with App Router and Server Components
-- **Database**: Redis 5.9.0 (192.168.6.22:6379) with Radar04/* key pattern
-- **Historical Storage**: MongoDB 6.20.0 (192.168.6.22:27017)
+- **Database**: Redis 5.9.0 (192.168.1.71:6379) with consistent key patterns
+- **Historical Storage**: MongoDB 6.20.0 (192.168.1.71:27017)
 - **Real-time**: Unified WebSocket server (port 8080) for live data updates
 - **Language**: TypeScript 5.x with strict typing
 - **Runtime**: Node.js 18+ with @types/node ^24
+
+### Redis Key Patterns ✅ CONSISTENT
+- **Standardized Pattern**: `deviceId/passdata` (lowercase, slash separator)
+- **Redis List**: `deviceId/passdata` for PassData storage
+- **Pub/Sub Channels**: `deviceId/passdata:new` for notifications
+- **Keyspace Notifications**: `__keyspace@0__:deviceId/passdata` for Redis events
+- **Redis Streams**: `deviceId/passdata:stream` for stream processing
+- **All Services**: Use consistent patterns for reliable pub/sub data flow
 
 ### Data Sources
 The system processes five types of radar data packets:
@@ -58,8 +66,8 @@ See `.specify/memory/constitution.md` for complete project principles and govern
 ## Development Setup
 
 ### Prerequisites
-- Node.js 18+ 
-- Redis server access (192.168.6.22:6379) ✅ **VERIFIED & ACTIVE**
+- Node.js 18+
+- Redis server access (192.168.1.71:6379) ✅ **VERIFIED & ACTIVE**
 - ClairWav-T80 radar system integration ✅ **ACTIVE DATA STREAMING**
 
 ### Installation
@@ -70,29 +78,29 @@ npm run dev
 
 ### Environment Variables
 ```env
-REDIS_HOST=192.168.6.22
+REDIS_HOST=192.168.1.71
 REDIS_PORT=6379
-REDIS_KEY_PREFIX=Radar04
 RADAR_PROTOCOL_VERSION=2.1
+RADAR_DEVICE_ID=P1-center
 ```
 
 ### Redis Connection Status ✅ **VERIFIED & ACTIVE**
-- **Server**: 192.168.6.22:6379 (Redis 7.4.6)
-- **Status**: Production-ready with 6+ days uptime
+- **Server**: 192.168.1.71:6379 (Redis 7.4.6)
+- **Status**: Production-ready with multi-device support
 - **Data Volume**: 3.3M+ Object Data entries, 413K+ Lane Status entries
-- **Performance**: Sub-second access times, 14 active clients
+- **Performance**: Sub-second access times, active pub/sub connections
 - **Data Quality**: Real-time radar data streaming with proper validation
 
-**Connection Test**: `redis-cli -h 192.168.6.22 -p 6379 ping` → ✅ PONG
+**Connection Test**: `redis-cli -h 192.168.1.71 -p 6379 ping` → ✅ PONG
 
 ### MongoDB Connection Status ✅ **VERIFIED & ACTIVE**
-- **Server**: 192.168.6.22:27017 (MongoDB 4.4.29)
+- **Server**: 192.168.1.71:27017 (MongoDB 4.4.29)
 - **Status**: Production-ready with comprehensive traffic data
 - **Databases**: traffic_analysis (3.4GB), trafficlair (7.2GB)
 - **Data Volume**: 27.6M+ traffic records, 16M+ radar records
 - **Collections**: vehicle_detections, lane_status, pass_events, metrics_15min
 
-**Connection Test**: `mongo --host 192.168.6.22 --port 27017 --username admin --password admin123 --authenticationDatabase admin --eval "db.runCommand('ping')"` → ✅ SUCCESS
+**Connection Test**: `mongo --host 192.168.1.71 --port 27017 --username admin --password admin123 --authenticationDatabase admin --eval "db.runCommand('ping')"` → ✅ SUCCESS
 
 See [REDIS_CONNECTION_STATUS.md](./REDIS_CONNECTION_STATUS.md) and [MONGODB_CONNECTION_STATUS.md](./MONGODB_CONNECTION_STATUS.md) for detailed connection information.
 
@@ -107,12 +115,14 @@ See [REDIS_CONNECTION_STATUS.md](./REDIS_CONNECTION_STATUS.md) and [MONGODB_CONN
 
 ### Vehicle Classification System
 - **PassData Processing**: Real-time analysis of vehicle crossing events (0x05 packets)
-- **Vehicle Type Classification**: Automatic classification of cars, SUVs, trucks, motorcycles, and vans
+- **Vehicle Type Classification**: Automatic classification using official ClairWav Communication Protocol V2.1 mapping
+- **Supported Vehicle Types**: Cars, SUVs, trucks, motorcycles, vans, bicycles, buses, pedestrians, and specialized vehicles
 - **Speed Analysis**: Statistical analysis of speeds by vehicle type with violation detection
 - **Lane Utilization**: Traffic density analysis across intersection lanes
 - **Time-based Aggregation**: Multi-level time analysis (1min, 15min, 1hour, daily)
 - **Peak Hour Analysis**: Identification of busiest traffic periods
 - **Traffic Composition**: Analysis of vehicle type distribution and trends
+- **Accurate Mapping**: Fixed vehicle type classification using official radar protocol codes
 
 ### Key Calculations
 - Queue length and vehicle counts

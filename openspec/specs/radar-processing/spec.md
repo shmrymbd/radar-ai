@@ -65,20 +65,15 @@ The system SHALL validate all radar data against parameter ranges and quality st
 - **AND** lane-specific data is properly categorized
 
 ### Requirement: Real-time Data Storage
-The system SHALL store radar data in Redis with appropriate data structures and TTL values.
+The system SHALL store radar data in Redis with appropriate data structures and TTL values using consistent key patterns.
 
 #### Scenario: Redis data storage
 - **WHEN** radar data is processed
-- **THEN** data is stored in Redis at 192.168.6.22:6379
-- **AND** keys follow Radar04/* pattern for organization
-- **AND** appropriate TTL values are set for data retention
-- **AND** data structures are optimized for real-time queries
-
-#### Scenario: Data retrieval performance
-- **WHEN** dashboard requests current traffic data
-- **THEN** data is retrieved from Redis in sub-second latency
-- **AND** real-time updates are available via WebSocket
-- **AND** historical data is accessible for trend analysis
+- **THEN** data is stored in Redis at 192.168.1.71:6379
+- **AND** uses consistent key patterns: `deviceId/passdata` (lowercase, slash separator)
+- **AND** pub/sub channels use pattern: `deviceId/passdata:new`
+- **AND** keyspace notifications use pattern: `__keyspace@0__:deviceId/passdata`
+- **AND** stream keys use pattern: `deviceId/passdata:stream`
 
 ### Requirement: Error Handling
 The system SHALL handle radar data errors and connection issues gracefully.
