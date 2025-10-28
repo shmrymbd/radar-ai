@@ -153,6 +153,26 @@ useEffect(() => { setIsClient(true); }, []);
 // Only access localStorage/random values when isClient === true
 ```
 
+### React Performance Patterns
+- **Wrap data fetching in `useCallback`** to prevent recreation on every render
+- **Add debouncing** to prevent excessive API calls (minimum 2 seconds for real-time updates)
+- **Include all dependencies** in useEffect dependency arrays to prevent stale closures
+- **Use refs for timing checks** (`useRef<number>`) to track last fetch times without triggering re-renders
+- Example from ClassificationDashboard.tsx:
+```typescript
+const lastFetchTimeRef = useRef<number>(0);
+const FETCH_DEBOUNCE_MS = 2000;
+
+const fetchData = useCallback(async () => {
+  const now = Date.now();
+  if (now - lastFetchTimeRef.current < FETCH_DEBOUNCE_MS) {
+    return; // Skip if called too soon
+  }
+  lastFetchTimeRef.current = now;
+  // ... fetch logic
+}, [dependencies]);
+```
+
 ## Common Gotchas
 
 1. **IP Addresses**: Redis/MongoDB are at 192.168.1.71 (updated 2025-10-28)
@@ -167,6 +187,7 @@ useEffect(() => { setIsClient(true); }, []);
 10. **Lane Configuration**: Default lanes are 11,12,13,485 (from LANES env var)
 11. **Rate Limiting**: Disabled by default in development (DISABLE_RATE_LIMITING=true)
 12. **Dynamic ports**: API routes use dynamic port detection, never hardcode localhost:3000
+13. **Classification tab refresh**: Use `useCallback` + debouncing (2s minimum) to prevent excessive API calls (fixed 2025-10-28)
 
 ## OpenSpec Changes
 
