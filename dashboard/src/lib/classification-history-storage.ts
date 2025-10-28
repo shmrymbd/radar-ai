@@ -7,8 +7,15 @@ export class ClassificationHistoryStorage {
   private collection: Collection<ClassificationHistory>;
 
   constructor() {
-    this.client = new MongoClient(process.env.MONGODB_URI || 'mongodb://admin:admin123@192.168.6.22:27017/traffic_analysis?authSource=admin');
-    this.db = this.client.db('traffic_analysis');
+    // Build MongoDB URI from environment variables (matching pattern from /lib/mongodb.ts)
+    const uri = process.env.MONGODB_URI ||
+      `mongodb://${process.env.MONGODB_USERNAME || 'admin'}:${process.env.MONGODB_PASSWORD || 'admin123'}@${process.env.MONGODB_HOST || '192.168.1.71'}:${process.env.MONGODB_PORT || '27017'}/${process.env.MONGODB_DASHBOARD_DATABASE || 'traffic_signal_dashboard'}?authSource=${process.env.MONGODB_AUTH_DATABASE || 'admin'}`;
+
+    this.client = new MongoClient(uri);
+
+    // Use traffic_signal_dashboard database (NOT traffic_analysis)
+    const databaseName = process.env.MONGODB_DASHBOARD_DATABASE || 'traffic_signal_dashboard';
+    this.db = this.client.db(databaseName);
     this.collection = this.db.collection<ClassificationHistory>('classification_history');
   }
 

@@ -1,15 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { RedisStorage } from '@/lib/redis-storage';
 import { withApiProtection } from '@/lib/middleware';
+import { validateAndSanitizeDeviceId } from '@/lib/device-validation';
 
 export async function GET(request: NextRequest) {
   // Apply authentication and rate limiting
-  const protection = withApiProtection(request);
+  const protection = await withApiProtection(request);
   if (!protection.ok) return protection.response;
 
   try {
     const { searchParams } = new URL(request.url);
-    const deviceId = searchParams.get('device') || 'Radar04'; // Default to Radar04 for backward compatibility
+    const rawDeviceId = searchParams.get('device');
+
+    // Validate device ID
+    const deviceValidation = validateAndSanitizeDeviceId(rawDeviceId, 'P1-center', false);
+    if (!deviceValidation.valid) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid device ID',
+          details: deviceValidation.error,
+          timestamp: new Date().toISOString()
+        },
+        { status: 400 }
+      );
+    }
+
+    const deviceId = deviceValidation.deviceId;
     
     const redisStorage = RedisStorage.getInstance();
     
@@ -51,7 +68,10 @@ export async function GET(request: NextRequest) {
  */
 async function generateDynamicDashboardSummary(deviceId: string) {
   // Fetch current vehicle data to calculate real-time summary
-  const vehicleResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/tracking/vehicles?device=${deviceId}`);
+  // Use dynamic port detection from environment or default to 3000
+  const port = process.env.PORT || '3000';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${port}`;
+  const vehicleResponse = await fetch(`${baseUrl}/api/tracking/vehicles?device=${deviceId}`);
   const vehicleData = await vehicleResponse.json();
   
   if (!vehicleData.success || !vehicleData.data) {
@@ -217,8 +237,20 @@ async function generateDynamicDashboardSummary(deviceId: string) {
  */
 async function enrichDashboardWithVehicleBreakdown(dashboardSummary: any, deviceId: string): Promise<any> {
   // Fetch current vehicle data to calculate vehicle type breakdown
-  const vehicleResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/tracking/vehicles?device=${deviceId}`);
-  const vehicleData = await vehicleResponse.json();
+  // Use try-catch to handle fetch failures gracefully
+  let vehicleData;
+  try {
+    // Use dynamic port detection from environment or default to 3000
+    const port = process.env.PORT || '3000';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${port}`;
+    const vehicleResponse = await fetch(`${baseUrl}/api/tracking/vehicles?device=${deviceId}`, {
+      signal: AbortSignal.timeout(3000) // 3 second timeout
+    });
+    vehicleData = await vehicleResponse.json();
+  } catch (error) {
+    console.warn('Failed to fetch vehicle data for breakdown, continuing without it:', error);
+    return dashboardSummary;
+  }
 
   if (!vehicleData.success || !vehicleData.data || !dashboardSummary.laneStatus) {
     return dashboardSummary;
