@@ -62,6 +62,16 @@ This project provides a complete traffic management solution for traffic enginee
   - Used `useRef` for timing checks to avoid triggering re-renders
 - **Impact**: ~90% reduction in API calls, smooth UI without flicker, improved server performance
 
+### Dashboard Loading Fix (2025-10-28)
+- **Issue**: Dashboard stuck on "Loading dashboard data..." message
+- **Root Cause**: Port conflict - Next.js running on 3001 but API hardcoded to call localhost:3000
+- **Solution**:
+  - Updated `/api/dashboard` to detect actual server port from request headers
+  - Added `requestHost` parameter to internal API call functions
+  - Fixed both `generateDynamicDashboardSummary()` and `enrichDashboardWithVehicleBreakdown()`
+  - Changed default port from 3000 to 3001 for better conflict handling
+- **Impact**: Dashboard now loads successfully, no more ECONNREFUSED errors
+
 ### Infrastructure Updates
 - **IP Address Migration**: Updated Redis/MongoDB from 192.168.6.22 to 192.168.1.71
 - **Environment Cleanup**: Removed deprecated `REDIS_KEY_PREFIX` variable

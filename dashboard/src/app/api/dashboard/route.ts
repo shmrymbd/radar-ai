@@ -27,21 +27,24 @@ export async function GET(request: NextRequest) {
     }
 
     const deviceId = deviceValidation.deviceId;
-    
+
+    // Get the actual request host for internal API calls
+    const requestHost = request.headers.get('host') || 'localhost:3001';
+
     const redisStorage = RedisStorage.getInstance();
-    
+
     // Set the device prefix for this request
     redisStorage.setDevicePrefix(deviceId);
-    
+
     // Get device-specific dashboard summary
     let dashboardSummary = await redisStorage.getDeviceDashboardSummary(deviceId);
 
     // For test device or when no Redis data, generate dynamic summary
     if (deviceId === 'test' || !dashboardSummary) {
-      dashboardSummary = await generateDynamicDashboardSummary(deviceId);
+      dashboardSummary = await generateDynamicDashboardSummary(deviceId, requestHost);
     } else {
       // For real devices with Redis data, enrich laneStatus with vehicle type breakdown
-      dashboardSummary = await enrichDashboardWithVehicleBreakdown(dashboardSummary, deviceId);
+      dashboardSummary = await enrichDashboardWithVehicleBreakdown(dashboardSummary, deviceId, requestHost);
     }
 
     return NextResponse.json({
@@ -66,11 +69,15 @@ export async function GET(request: NextRequest) {
 /**
  * Generate dynamic dashboard summary for test devices
  */
-async function generateDynamicDashboardSummary(deviceId: string) {
+async function generateDynamicDashboardSummary(deviceId: string, requestHost?: string) {
   // Fetch current vehicle data to calculate real-time summary
-  // Use dynamic port detection from environment or default to 3000
-  const port = process.env.PORT || '3000';
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${port}`;
+  // CRITICAL: Use the actual request host to avoid port conflicts
+  // When Next.js auto-selects a different port (e.g., 3001 instead of 3000),
+  // we need to use that actual port for internal API calls
+  const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  const host = requestHost || 'localhost:3001';
+  const baseUrl = `${protocol}://${host}`;
+
   const vehicleResponse = await fetch(`${baseUrl}/api/tracking/vehicles?device=${deviceId}`);
   const vehicleData = await vehicleResponse.json();
   
@@ -235,14 +242,15 @@ async function generateDynamicDashboardSummary(deviceId: string) {
 /**
  * Enrich dashboard summary with vehicle type breakdown for all devices
  */
-async function enrichDashboardWithVehicleBreakdown(dashboardSummary: any, deviceId: string): Promise<any> {
+async function enrichDashboardWithVehicleBreakdown(dashboardSummary: any, deviceId: string, requestHost?: string): Promise<any> {
   // Fetch current vehicle data to calculate vehicle type breakdown
   // Use try-catch to handle fetch failures gracefully
   let vehicleData;
   try {
-    // Use dynamic port detection from environment or default to 3000
-    const port = process.env.PORT || '3000';
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${port}`;
+    // CRITICAL: Use the actual request host to avoid port conflicts
+    const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+    const host = requestHost || 'localhost:3001';
+    const baseUrl = `${protocol}://${host}`;
     const vehicleResponse = await fetch(`${baseUrl}/api/tracking/vehicles?device=${deviceId}`, {
       signal: AbortSignal.timeout(3000) // 3 second timeout
     });
