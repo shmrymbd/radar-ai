@@ -758,7 +758,16 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
   // Subscribe to tracking channel when WebSocket is connected
   useEffect(() => {
     if (ws && connectionStatus === 'connected') {
-      subscribeToChannel('tracking');
+      // Add small delay for Firefox to ensure WebSocket is fully ready
+      const isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('firefox');
+      const delay = isFirefox ? 100 : 0;
+
+      const timer = setTimeout(() => {
+        console.log('📡 Subscribing to tracking channel...');
+        subscribeToChannel('tracking');
+      }, delay);
+
+      return () => clearTimeout(timer);
     }
   }, [ws, connectionStatus, subscribeToChannel]);
 

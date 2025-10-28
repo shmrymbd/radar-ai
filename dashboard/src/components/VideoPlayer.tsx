@@ -29,15 +29,66 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
         setConnectionStatus('connecting');
 
         // Get WebRTC stream URL from our API
-        const response = await fetch(`/api/video/streams?cameraId=${cameraId}`);
-        const data = await response.json();
-        
+        let response = await fetch(`/api/video/streams?cameraId=${cameraId}`);
+        let data = await response.json();
+
+        // If no stream exists, try to start one
         if (!data.success || !data.streams || data.streams.length === 0) {
-          throw new Error('No active stream found for camera');
+          console.log('No active stream found, attempting to start stream...');
+
+          // Get camera details to start the stream
+          const cameraResponse = await fetch('/api/video/cameras');
+          const cameraData = await cameraResponse.json();
+
+          if (!cameraData.success || !cameraData.cameras) {
+            throw new Error('Failed to fetch camera configuration');
+          }
+
+          const camera = cameraData.cameras.find((cam: any) => cam.id === cameraId);
+          if (!camera) {
+            throw new Error('Camera configuration not found');
+          }
+
+          // Start the stream
+          const startResponse = await fetch('/api/video/streams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cameraId: camera.id,
+              rtspUrl: camera.rtspUrl,
+              username: camera.username,
+              password: camera.password
+            })
+          });
+
+          const startData = await startResponse.json();
+          if (!startData.success) {
+            throw new Error(startData.error || 'Failed to start video stream');
+          }
+
+          // Get the stream info
+          data = startData;
         }
 
-        const stream = data.streams[0];
-        const hlsUrl = stream.hlsUrl || `http://localhost:8083/hls/${stream.streamId}/playlist.m3u8`;
+        const stream = data.stream || data.streams?.[0];
+        if (!stream) {
+          throw new Error('No stream information available');
+        }
+
+        // Determine the HLS URL - API returns relative path like /api/video/hls/stream_xxx/playlist.m3u8
+        let hlsUrl = data.hlsUrl || stream.hlsUrl;
+
+        // If it's a relative path, make it absolute using the current origin
+        if (hlsUrl && hlsUrl.startsWith('/')) {
+          hlsUrl = `${window.location.origin}${hlsUrl}`;
+        } else if (!hlsUrl && stream.streamId) {
+          // Fallback: construct URL from streamId
+          hlsUrl = `${window.location.origin}/api/video/hls/${stream.streamId}/playlist.m3u8`;
+        } else if (!hlsUrl) {
+          throw new Error('No HLS URL available for stream');
+        }
+
+        console.log('🎥 Loading HLS stream:', hlsUrl);
 
         // Use hls.js for HLS streaming
         // Set video properties for optimal autoplay
@@ -67,12 +118,19 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
             levelLoadingMaxRetry: 6, // Increased from 3
             fragLoadingMaxRetry: 6, // Increased from 3
             fragLoadingTimeOut: 10000, // 10 second timeout
-            // Handle append errors gracefully
-            appendErrorMaxRetry: 3,
+            // Handle append errors gracefully (critical for Firefox)
+            appendErrorMaxRetry: 5, // Increased from 3 for Firefox
             // Prefetch for smoother playback
             startFragPrefetch: true,
             // Debug mode off to reduce console noise
-            debug: false
+            debug: false,
+            // Firefox-specific: More aggressive buffer management
+            nudgeMaxRetry: 5,
+            nudgeOffset: 0.1,
+            // Use more conservative approach for Firefox
+            abrEwmaDefaultEstimate: 500000, // 500kbps default estimate
+            abrBandWidthFactor: 0.95, // Be more conservative with bandwidth
+            abrBandWidthUpFactor: 0.7 // Slower upward adaptation
           });
 
           // Store HLS instance in ref for cleanup
@@ -89,37 +147,85 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
             // Reset retry count on successful connection
             retryCountRef.current = 0;
 
-            // Attempt autoplay with progressive enhancement
+            // Enhanced autoplay strategy with multiple fallbacks
             const attemptAutoplay = async () => {
               try {
-                // Always mute first for best autoplay support
+                // Strategy 1: Start muted (required for most browsers)
                 video.muted = true;
-                await video.play();
-                console.log('✅ Autoplay successful');
+                video.volume = 0;
+
+                // Try immediate play
+                const playPromise = video.play();
+
+                if (playPromise !== undefined) {
+                  await playPromise;
+                  console.log('✅ Autoplay successful (muted)');
+                  setShowPlayButton(false);
+
+                  // Optional: Try to unmute after 1 second if user hasn't interacted
+                  setTimeout(() => {
+                    if (video && !video.paused) {
+                      video.muted = false;
+                      video.volume = 0.5;
+                      // If unmuting causes issues, revert to muted
+                      video.play().catch(() => {
+                        video.muted = true;
+                        video.volume = 0;
+                      });
+                    }
+                  }, 1000);
+                }
               } catch (err) {
-                console.warn('⚠️ Autoplay blocked:', err.message);
-                // Show play button for user interaction
+                console.warn('⚠️ Autoplay blocked, trying fallbacks:', err);
+
+                // Strategy 2: Try playing on next user interaction
                 setShowPlayButton(true);
-                // Try playing again on any user interaction
+
                 const handleUserInteraction = async () => {
                   try {
+                    video.muted = true;
                     await video.play();
-                    // Cleanup after successful play
-                    ['click', 'touchstart', 'keydown'].forEach(type =>
+                    console.log('✅ Playback started after user interaction');
+                    setShowPlayButton(false);
+
+                    // Cleanup listeners
+                    ['click', 'touchstart', 'keydown', 'scroll', 'mousemove'].forEach(type =>
                       document.removeEventListener(type, handleUserInteraction)
                     );
-                    setShowPlayButton(false);
+
+                    // Try unmuting after successful play
+                    setTimeout(() => {
+                      if (video && !video.paused) {
+                        video.muted = false;
+                        video.volume = 0.5;
+                        video.play().catch(() => {
+                          video.muted = true;
+                          video.volume = 0;
+                        });
+                      }
+                    }, 500);
                   } catch (innerErr) {
                     console.error('Failed to play after user interaction:', innerErr);
                   }
                 };
-                // Listen for any user interaction
-                ['click', 'touchstart', 'keydown'].forEach(type =>
+
+                // Listen for any user interaction (including scroll and mousemove)
+                ['click', 'touchstart', 'keydown', 'scroll', 'mousemove'].forEach(type =>
                   document.addEventListener(type, handleUserInteraction, { once: true })
                 );
               }
             };
+
+            // Start autoplay attempt immediately
             attemptAutoplay();
+
+            // Strategy 3: Retry autoplay after a short delay (helps with some browsers)
+            setTimeout(() => {
+              if (video.paused) {
+                console.log('🔄 Retrying autoplay...');
+                attemptAutoplay();
+              }
+            }, 500);
           });
 
           // Buffer health monitoring
@@ -138,61 +244,70 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
           });
 
           hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('HLS error:', data);
+            // Handle non-fatal errors first
+            if (!data.fatal) {
+              // Firefox-specific: buffer append errors are common and usually recoverable
+              if (data.details === 'bufferAppendError') {
+                // Silently handle - HLS.js will retry automatically
+                // Only log if we see too many
+                return;
+              }
 
-            if (data.fatal) {
-              const maxRetries = 5;
+              // Log other non-fatal errors for debugging
+              console.warn('Non-fatal HLS error:', data.details);
+              return;
+            }
 
-              if (retryCountRef.current < maxRetries) {
-                // Exponential backoff: 1s, 2s, 4s, 8s, 10s (capped)
-                const backoffDelay = Math.min(1000 * Math.pow(2, retryCountRef.current), 10000);
+            // Fatal errors - need recovery
+            console.error('HLS fatal error:', data);
+            const maxRetries = 5;
 
-                switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.warn(`Fatal network error, retry ${retryCountRef.current + 1}/${maxRetries} in ${backoffDelay}ms`);
-                    setTimeout(() => {
-                      if (hlsRef.current) {
-                        hlsRef.current.startLoad();
-                        retryCountRef.current++;
-                      }
-                    }, backoffDelay);
-                    break;
+            if (retryCountRef.current < maxRetries) {
+              // Exponential backoff: 1s, 2s, 4s, 8s, 10s (capped)
+              const backoffDelay = Math.min(1000 * Math.pow(2, retryCountRef.current), 10000);
 
-                  case Hls.ErrorTypes.MEDIA_ERROR:
-                    console.warn(`Fatal media error, retry ${retryCountRef.current + 1}/${maxRetries} in ${backoffDelay}ms`);
-                    setTimeout(() => {
-                      if (hlsRef.current) {
-                        hlsRef.current.recoverMediaError();
-                        retryCountRef.current++;
-                      }
-                    }, backoffDelay);
-                    break;
-
-                  default:
-                    console.error('Fatal error, cannot recover');
-                    setError('HLS playback error: ' + data.details);
-                    setConnectionStatus('disconnected');
-                    setIsLoading(false);
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  console.warn(`Fatal network error, retry ${retryCountRef.current + 1}/${maxRetries} in ${backoffDelay}ms`);
+                  setTimeout(() => {
                     if (hlsRef.current) {
-                      hlsRef.current.destroy();
-                      hlsRef.current = null;
+                      hlsRef.current.startLoad();
+                      retryCountRef.current++;
                     }
-                    break;
-                }
-              } else {
-                // Max retries exceeded
-                console.error(`Max retries (${maxRetries}) exceeded, giving up`);
-                setError('Unable to recover video stream after multiple attempts');
-                setConnectionStatus('disconnected');
-                setIsLoading(false);
-                if (hlsRef.current) {
-                  hlsRef.current.destroy();
-                  hlsRef.current = null;
-                }
+                  }, backoffDelay);
+                  break;
+
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  console.warn(`Fatal media error, retry ${retryCountRef.current + 1}/${maxRetries} in ${backoffDelay}ms`);
+                  setTimeout(() => {
+                    if (hlsRef.current) {
+                      hlsRef.current.recoverMediaError();
+                      retryCountRef.current++;
+                    }
+                  }, backoffDelay);
+                  break;
+
+                default:
+                  console.error('Fatal error, cannot recover');
+                  setError('HLS playback error: ' + data.details);
+                  setConnectionStatus('disconnected');
+                  setIsLoading(false);
+                  if (hlsRef.current) {
+                    hlsRef.current.destroy();
+                    hlsRef.current = null;
+                  }
+                  break;
               }
             } else {
-              // Non-fatal errors - just log them
-              console.warn('Non-fatal HLS error:', data.details);
+              // Max retries exceeded
+              console.error(`Max retries (${maxRetries}) exceeded, giving up`);
+              setError('Unable to recover video stream after multiple attempts');
+              setConnectionStatus('disconnected');
+              setIsLoading(false);
+              if (hlsRef.current) {
+                hlsRef.current.destroy();
+                hlsRef.current = null;
+              }
             }
           });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
