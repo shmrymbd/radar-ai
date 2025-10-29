@@ -516,7 +516,7 @@ export class UnifiedWebSocketServer {
           console.error(`Error updating device ${deviceId}:`, error);
         }
       }
-    }, 1000); // Update every 1 second - real-time lane status and radar analysis
+    }, 1000); // Update every 1 second (1 Hz) - Real-time dashboard updates for Radar Analysis and Lane Status
 
     this.updateIntervals.set(deviceId, interval);
     console.log(`🔄 Started updates for device: ${deviceId}`);
