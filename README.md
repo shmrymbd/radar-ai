@@ -65,23 +65,79 @@ See `.specify/memory/constitution.md` for complete project principles and govern
 
 ## Development Setup
 
+### Quick Start (Automated Setup)
+
+For new developers, use the automated setup script:
+
+```bash
+# Clone repository
+git clone <repository-url>
+cd radar-ai
+
+# Run setup script
+./setup.sh
+
+# Start development server
+cd dashboard
+npm run dev:full
+```
+
+The setup script will:
+- ✅ Verify prerequisites (Node.js, npm)
+- ✅ Configure Redis and MongoDB connections
+- ✅ Create environment file
+- ✅ Install dependencies
+- ✅ Set up database indexes
+- ✅ Verify connections
+
+📚 **For detailed setup instructions**, see [ENVIRONMENT_SETUP.md](./ENVIRONMENT_SETUP.md)
+
 ### Prerequisites
 - Node.js 18+
 - Redis server access (192.168.1.71:6379) ✅ **VERIFIED & ACTIVE**
+- MongoDB server access (192.168.1.71:27017) ✅ **VERIFIED & ACTIVE**
 - ClairWav-T80 radar system integration ✅ **ACTIVE DATA STREAMING**
 
-### Installation
+### Manual Installation
+
+If you prefer manual setup:
+
 ```bash
+# Install dependencies
+cd dashboard
 npm install
-npm run dev
+
+# Create .env.local (see ENVIRONMENT_SETUP.md for details)
+# Then start development server
+npm run dev:full
 ```
 
 ### Environment Variables
 ```env
+# Redis Configuration
 REDIS_HOST=192.168.1.71
 REDIS_PORT=6379
+
+# MongoDB Configuration
+MONGODB_HOST=192.168.1.71
+MONGODB_PORT=27017
+MONGODB_USERNAME=admin
+MONGODB_PASSWORD=admin123
+MONGODB_AUTH_DATABASE=admin
+MONGODB_DASHBOARD_DATABASE=traffic_signal_dashboard
+
+# Radar Configuration
 RADAR_PROTOCOL_VERSION=2.1
 RADAR_DEVICE_ID=P1-center
+
+# Dashboard Configuration
+DASHBOARD_REFRESH_INTERVAL=1000
+QUEUE_THRESHOLD=50
+SPEED_LIMIT=60
+LANES=11,12,13,485
+
+# Development Settings
+DISABLE_RATE_LIMITING=true
 ```
 
 ### Redis Connection Status ✅ **VERIFIED & ACTIVE**
@@ -153,6 +209,7 @@ See [REDIS_CONNECTION_STATUS.md](./REDIS_CONNECTION_STATUS.md) and [MONGODB_CONN
 ## Documentation
 
 ### Core Documentation
+- **Environment Setup**: [Complete Setup Guide](./ENVIRONMENT_SETUP.md) - **START HERE for new developers**
 - **Radar Parameters**: Complete reference guide for all data types
 - **API Documentation**: [Complete API Reference](./API_DOCUMENTATION.md)
 - **Deployment Guide**: [Comprehensive Deployment Instructions](./DEPLOYMENT_GUIDE.md)
