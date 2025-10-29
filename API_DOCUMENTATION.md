@@ -2,12 +2,30 @@
 
 ## Overview
 
-This document provides comprehensive API documentation for the Radar AI Traffic Dashboard, including the new video streaming capabilities. The API is built with Next.js and provides RESTful endpoints for radar data, vehicle classification, and video streaming.
+This document provides comprehensive API documentation for the Radar AI Traffic Dashboard. The API is built with Next.js 15 and provides RESTful endpoints for radar data, vehicle tracking, classification, analytics, video streaming, and lane configuration.
+
+**Latest Update**: 2025-10-29
+**API Version**: 2.0.0
 
 ## Base URL
 
 - **Development**: `http://localhost:3000/api`
 - **Production**: `https://your-domain.com/api`
+
+## Table of Contents
+
+- [Authentication](#authentication)
+- [Multi-Device Support](#multi-device-support)
+- [Response Format](#response-format)
+- [Vehicle Type Classification](#vehicle-type-classification)
+- [Radar Data API](#radar-data-api)
+- [Vehicle Tracking API](#vehicle-tracking-api)
+- [Lane Configuration API](#lane-configuration-api)
+- [Classification API](#classification-api)
+- [Analytics API](#analytics-api)
+- [Video Streaming API](#video-streaming-api)
+- [WebSocket API](#websocket-api)
+- [Error Handling](#error-handling)
 
 ## Authentication
 
@@ -79,15 +97,38 @@ Retry-After: 45
 
 ### Protected Endpoints
 
-The following endpoints require authentication (as of 2025-10-27):
+All API endpoints require authentication when `API_KEY` is set (production mode):
 - ✅ `/api/dashboard`
-- ✅ `/api/classification`
-- ✅ `/api/classification/summary`
-- ✅ `/api/classification/metrics`
-- ✅ `/api/classification/export`
-- ✅ `/api/tracking`
-- ✅ `/api/tracking/vehicles`
+- ✅ `/api/classification/*`
+- ✅ `/api/tracking/*`
 - ✅ `/api/lanes`
+- ✅ `/api/lane-config`
+- ✅ `/api/analytics/*`
+- ✅ `/api/video/*`
+- ✅ `/api/simple-redis`
+- ✅ `/api/real-passdata`
+
+## Multi-Device Support
+
+All API endpoints support multi-device operation via the `device` or `deviceId` query parameter.
+
+**Valid Device IDs:**
+- `P1-center` - Primary device (most commonly used)
+- `P3` - Secondary device
+- `P1-o/h` - Overhead position
+
+**Example:**
+```bash
+# Get data for specific device
+curl "http://localhost:3000/api/tracking?device=P1-center"
+curl "http://localhost:3000/api/classification?deviceId=P3"
+```
+
+**Important Notes:**
+- All data is isolated by device ID
+- Redis keys use format: `{deviceId}/passdata` (lowercase, case-sensitive)
+- MongoDB queries filter by `deviceId` field
+- Default device is `P1-center` when not specified
 
 ## Response Format
 
@@ -101,6 +142,37 @@ All API responses follow this format:
   "timestamp": string
 }
 ```
+
+## Vehicle Type Classification
+
+### Official Vehicle Type Mapping
+
+The system uses the official ClairWav Communication Protocol V2.1 vehicle type mapping:
+
+| Code | Vehicle Type | Description |
+|------|--------------|-------------|
+| 0 | other | Unclassified or other vehicle types |
+| 1 | bicycle | Standard bicycle |
+| 2 | motorcycle | Motorized two-wheel vehicle |
+| 3 | tricycle | Three-wheel vehicle |
+| 4 | bus | Public bus |
+| 5 | van | Van/minivan |
+| 6 | car | Standard passenger car |
+| 7 | suv | Sport Utility Vehicle |
+| 8 | large_truck | Large commercial truck |
+| 9 | medium_truck | Medium commercial truck |
+| 10 | light_truck | Light commercial truck |
+| 11 | dangerous_goods | Dangerous goods transport vehicle |
+| 12 | engineering_vehicle | Engineering/construction vehicle |
+| 13 | pedestrian | Pedestrian detected |
+| 14 | medium_bus | Medium-sized bus |
+
+### Classification Accuracy
+
+- **Fixed Issue**: Resolved 99.7% car classification problem
+- **Root Cause**: Incorrect vehicle type mapping in radar processor
+- **Solution**: Updated all services to use official VEHICLE_TYPE_MAP
+- **Result**: Accurate vehicle type distribution reflecting real traffic composition
 
 ## Radar Data API
 
@@ -165,6 +237,9 @@ All API responses follow this format:
 
 **Description**: Retrieves current signal timing configuration.
 
+**Query Parameters**:
+- `device` (string, optional): Device ID (default: 'P1-center')
+
 **Response**:
 ```json
 {
@@ -182,13 +257,295 @@ All API responses follow this format:
 }
 ```
 
+### Simple Redis Test
+
+**Endpoint**: `GET /api/simple-redis`
+
+**Description**: Tests Redis connectivity and retrieves basic statistics.
+
+**Query Parameters**:
+- `device` (string, optional): Device ID (default: 'P1-center')
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "connected": true,
+    "keyCount": 150,
+    "deviceId": "P1-center",
+    "sampleKeys": ["P1-center/passdata", "P1-center/objectdata"]
+  }
+}
+```
+
+## Vehicle Tracking API
+
+### Get Tracked Vehicles
+
+**Endpoint**: `GET /api/tracking`
+
+**Description**: Retrieves real-time vehicle tracking data with coordinates and movement paths.
+
+**Query Parameters**:
+- `device` (string, optional): Device ID (default: 'P1-center')
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "vehicles": [
+      {
+        "id": "12345",
+        "laneNo": 11,
+        "targetType": 6,
+        "vehicleType": "car",
+        "position": {
+          "x": 10.5,
+          "y": 2.3,
+          "z": 0
+        },
+        "velocity": {
+          "x": 15.2,
+          "y": 0.1,
+          "z": 0
+        },
+        "speed": 45.5,
+        "acceleration": 0.2,
+        "heading": 90.5,
+        "length": 4.2,
+        "width": 1.8,
+        "rcs": -15.5,
+        "snr": 20.3,
+        "confidence": 0.95,
+        "color": "#FF5733",
+        "plateNumber": "ABC123",
+        "timestamp": "2025-10-29T10:30:00.000Z"
+      }
+    ],
+    "count": 45,
+    "device": "P1-center",
+    "timestamp": "2025-10-29T10:30:00.000Z"
+  }
+}
+```
+
+### Get Vehicle List
+
+**Endpoint**: `GET /api/tracking/vehicles`
+
+**Description**: Retrieves list of tracked vehicles with dynamic movement simulation for testing.
+
+**Query Parameters**:
+- `device` (string, optional): Device ID (default: 'P1-center')
+
+**Response**: Same format as `/api/tracking`
+
+**Note**: For test devices with no Redis data, this endpoint generates simulated vehicle data for development purposes.
+
+### Get Vehicle Details
+
+**Endpoint**: `GET /api/tracking/vehicles/[targetId]`
+
+**Description**: Retrieves detailed information for a specific tracked vehicle.
+
+**Path Parameters**:
+- `targetId` (string, required): Vehicle target ID
+
+**Query Parameters**:
+- `device` (string, optional): Device ID (default: 'P1-center')
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "12345",
+    "laneNo": 11,
+    "targetType": 6,
+    "vehicleType": "car",
+    "position": {
+      "x": 10.5,
+      "y": 2.3,
+      "z": 0
+    },
+    "trackHistory": [
+      {
+        "x": 10.3,
+        "y": 2.3,
+        "timestamp": "2025-10-29T10:29:55.000Z"
+      },
+      {
+        "x": 10.5,
+        "y": 2.3,
+        "timestamp": "2025-10-29T10:30:00.000Z"
+      }
+    ],
+    "speed": 45.5,
+    "heading": 90.5,
+    "timestamp": "2025-10-29T10:30:00.000Z"
+  }
+}
+```
+
+## Lane Configuration API
+
+### Get Lane Configuration
+
+**Endpoint**: `GET /api/lane-config`
+
+**Description**: Retrieves lane configuration for a device including lane names, thresholds, alerts, and display options.
+
+**Query Parameters**:
+- `device` (string, required): Device ID
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "deviceId": "P1-center",
+    "lanes": [
+      {
+        "laneNumber": 11,
+        "customName": "North Bound Lane 1",
+        "enabled": true,
+        "direction": "incoming",
+        "thresholds": {
+          "queueLength": 50,
+          "speed": 60,
+          "occupancy": 0.8,
+          "flow": 1200
+        },
+        "alerts": {
+          "queueAlert": true,
+          "speedAlert": true,
+          "occupancyAlert": false
+        },
+        "displayOptions": {
+          "showInDashboard": true,
+          "color": "#3B82F6",
+          "sortOrder": 1
+        }
+      }
+    ],
+    "updatedAt": "2025-10-29T10:30:00.000Z"
+  },
+  "timestamp": "2025-10-29T10:30:00.000Z"
+}
+```
+
+### Save Lane Configuration
+
+**Endpoint**: `POST /api/lane-config`
+
+**Description**: Creates or updates lane configuration for a device.
+
+**Request Body**:
+```json
+{
+  "deviceId": "P1-center",
+  "lanes": [
+    {
+      "laneNumber": 11,
+      "customName": "North Bound Lane 1",
+      "enabled": true,
+      "direction": "incoming",
+      "thresholds": {
+        "queueLength": 50,
+        "speed": 60,
+        "occupancy": 0.8,
+        "flow": 1200
+      },
+      "alerts": {
+        "queueAlert": true,
+        "speedAlert": true,
+        "occupancyAlert": false
+      },
+      "displayOptions": {
+        "showInDashboard": true,
+        "color": "#3B82F6",
+        "sortOrder": 1
+      }
+    }
+  ]
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Lane configuration saved successfully",
+  "data": {
+    "deviceId": "P1-center",
+    "laneCount": 4,
+    "updatedAt": "2025-10-29T10:30:00.000Z"
+  },
+  "timestamp": "2025-10-29T10:30:00.000Z"
+}
+```
+
+**Lane Direction Values**:
+- `incoming` - Traffic entering the intersection (⬇️)
+- `outgoing` - Traffic leaving the intersection (⬆️)
+
 ## Vehicle Classification API
+
+**Architecture Note**: As of 2025-10-27, the classification system uses a **MongoDB-first architecture** with NO in-memory caching or polling:
+- MongoDB is the single source of truth
+- Direct MongoDB queries with aggregation pipelines
+- Real-time data via Redis Pub/Sub → PassDataSubscriber → MongoDB
+- NO Redis polling or in-memory caching
+
+### Get Classification Data
+
+**Endpoint**: `GET /api/classification`
+
+**Description**: Retrieves vehicle classification data from MongoDB with aggregation and filtering.
+
+**Query Parameters**:
+- `deviceId` (string, optional): Device ID (default: 'P1-center')
+- `timeRange` (string, optional): Time range ('1h', '24h', '7d', default: '24h')
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "totalVehicles": 1234,
+    "deviceId": "P1-center",
+    "timeRange": "24h",
+    "vehicleTypes": {
+      "car": 850,
+      "suv": 234,
+      "truck": 150
+    },
+    "lanes": {
+      "11": 400,
+      "12": 350,
+      "13": 300,
+      "485": 184
+    },
+    "averageSpeed": 45.6,
+    "speedDistribution": {
+      "overspeeding": 234,
+      "normal": 1000
+    }
+  },
+  "timestamp": "2025-10-29T10:30:00.000Z"
+}
+```
 
 ### Get Classification Summary
 
 **Endpoint**: `GET /api/classification/summary`
 
-**Description**: Retrieves vehicle classification summary and statistics.
+**Description**: Retrieves vehicle classification summary and statistics from MongoDB.
+
+**Query Parameters**:
+- `deviceId` (string, optional): Device ID (default: 'P1-center')
 
 **Response**:
 ```json
@@ -197,10 +554,13 @@ All API responses follow this format:
   "data": {
     "totalVehicles": 150,
     "classifications": {
-      "car": 85,
+      "car": 45,
       "van": 25,
       "suv": 30,
-      "truck": 10
+      "truck": 20,
+      "motorcycle": 15,
+      "bicycle": 10,
+      "bus": 5
     },
     "accuracy": 0.94,
     "timeRange": {
@@ -273,6 +633,189 @@ All API responses follow this format:
       }
     ]
   }
+}
+```
+
+## Analytics API
+
+### Get Analytics Data
+
+**Endpoint**: `GET /api/analytics`
+
+**Description**: Retrieves comprehensive traffic analytics data including vehicle classification, speed distribution, Level of Service (LOS), and traffic count trends.
+
+**Query Parameters**:
+- `deviceId` (string, optional): Device ID filter (default: 'test')
+- `timeRange` (string, optional): Time range for data ('1h', '24h', '7d', default: '24h')
+
+**Request Example**:
+```bash
+curl -H "x-api-key: your-api-key" \
+  "http://localhost:3000/api/analytics?deviceId=Radar04&timeRange=24h"
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "data": {
+    "summary": {
+      "totalVehicles": 1234,
+      "timeRange": "24h",
+      "deviceId": "Radar04",
+      "averageSpeed": 45.6
+    },
+    "vehicleClassification": [
+      {
+        "time": "2025-10-27T10:00:00Z",
+        "class1": 45,
+        "class2": 23,
+        "class3": 12,
+        "class4": 8,
+        "class5": 3,
+        "class6": 1
+      }
+    ],
+    "trafficCount": [
+      {
+        "time": "2025-10-27T10:00:00Z",
+        "count": 92,
+        "class1": 45,
+        "class2": 23,
+        "class3": 12,
+        "class4": 8,
+        "class5": 3,
+        "class6": 1
+      }
+    ],
+    "speedPercentage": [
+      {
+        "name": "Overspeeding",
+        "value": 234,
+        "percentage": 19.0,
+        "color": "#FF6B35"
+      },
+      {
+        "name": "Normal Speed",
+        "value": 1000,
+        "percentage": 81.0,
+        "color": "#FFD23F"
+      }
+    ],
+    "speedCount": [
+      {
+        "time": "2025-10-27T10:00:00Z",
+        "averageSpeed": 45.6,
+        "count": 92
+      }
+    ],
+    "levelOfService": [
+      {
+        "time": "2025-10-27T10:00:00Z",
+        "losGrade": "B",
+        "density": 12.5,
+        "averageSpeed": 45.6
+      }
+    ],
+    "vehicleCountByType": [
+      {
+        "name": "Passenger Car",
+        "value": 850,
+        "percentage": 68.9
+      },
+      {
+        "name": "SUV",
+        "value": 234,
+        "percentage": 19.0
+      },
+      {
+        "name": "Truck",
+        "value": 150,
+        "percentage": 12.1
+      }
+    ]
+  },
+  "timestamp": "2025-10-27T12:34:56Z"
+}
+```
+
+### Export Analytics Data
+
+**Endpoint**: `GET /api/analytics/export`
+
+**Description**: Exports analytics data in various formats (CSV, JSON, Excel, PDF). Excel format includes multiple sheets for different data categories.
+
+**Query Parameters**:
+- `deviceId` (string, optional): Device ID filter (default: 'test')
+- `format` (string, optional): Export format - 'csv', 'json', 'excel', 'pdf' (default: 'json')
+- `includeKPIs` (boolean, optional): Include advanced KPIs in export (default: false)
+- `includeAnomalies` (boolean, optional): Include anomaly detection results (default: false)
+- `includePatterns` (boolean, optional): Include traffic pattern analysis (default: false)
+
+**Request Examples**:
+```bash
+# Export as Excel with all data
+curl -H "x-api-key: your-api-key" \
+  "http://localhost:3000/api/analytics/export?deviceId=Radar04&format=excel&includeKPIs=true&includeAnomalies=true" \
+  -o analytics-export.xlsx
+
+# Export as CSV
+curl -H "x-api-key: your-api-key" \
+  "http://localhost:3000/api/analytics/export?deviceId=Radar04&format=csv" \
+  -o analytics-export.csv
+
+# Export as JSON with patterns
+curl -H "x-api-key: your-api-key" \
+  "http://localhost:3000/api/analytics/export?deviceId=Radar04&format=json&includePatterns=true"
+```
+
+**Excel Export Sheets**:
+1. **Summary** - Device info, total vehicles, average speed, most common vehicle type
+2. **Vehicle Types** - Distribution by vehicle classification with counts and percentages
+3. **Speed Analysis** - Overspeeding, normal speed, and under-speed statistics
+4. **Advanced KPIs** (if included) - Intersection efficiency, lane utilization, speed compliance
+5. **Anomalies** (if included) - Detected traffic anomalies with severity and recommendations
+
+**Response (JSON format)**:
+```json
+{
+  "success": true,
+  "data": {
+    "deviceId": "Radar04",
+    "timestamp": "2025-10-27T12:34:56Z",
+    "summary": {
+      "totalVehicles": 1234,
+      "averageSpeed": 45.6,
+      "mostCommonVehicleType": "Passenger Car",
+      "vehicleTypeCounts": {
+        "Passenger Car": 850,
+        "SUV": 234,
+        "Truck": 150
+      }
+    },
+    "metrics": {
+      "overspeedingCount": 234,
+      "overspeedingPercentage": "19.0",
+      "normalSpeedCount": 1000,
+      "normalSpeedPercentage": "81.0"
+    }
+  },
+  "format": "json",
+  "timestamp": "2025-10-27T12:34:56Z"
+}
+```
+
+**Response (CSV/Excel/PDF formats)**:
+- File download with appropriate Content-Type and Content-Disposition headers
+- Filename format: `traffic-analytics-{deviceId}-{timestamp}.{ext}`
+
+**Error Response**:
+```json
+{
+  "success": false,
+  "error": "Failed to export analytics data",
+  "message": "Error details",
+  "timestamp": "2025-10-27T12:34:56Z"
 }
 ```
 
@@ -661,41 +1204,206 @@ Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
 Access-Control-Allow-Headers: Content-Type, Authorization
 ```
 
-## WebSocket Endpoints
+## WebSocket API
 
-### Real-time Data Updates
+### WebSocket Server
 
-**Endpoint**: `ws://localhost:3000/ws/radar`
+**Endpoint**: `ws://localhost:8080` (Unified WebSocket Server)
 
-**Description**: WebSocket connection for real-time radar data updates.
+**Description**: Centralized WebSocket server for all real-time updates running on port 8080.
 
-**Message Format**:
+**Starting the Server**:
+```bash
+npm run websocket    # Start WebSocket server only
+npm run dev:full     # Start Next.js + WebSocket together
+```
+
+### Message Channels
+
+The WebSocket server supports multiple channels for different data types:
+
+#### Dashboard Updates (`dashboard` channel)
+
+**Subscribe Message**:
 ```json
 {
-  "type": "radar_update",
+  "type": "subscribe",
+  "channel": "dashboard",
+  "deviceId": "P1-center"
+}
+```
+
+**Update Message**:
+```json
+{
+  "type": "dashboard_update",
+  "channel": "dashboard",
+  "deviceId": "P1-center",
   "data": {
-    "vehicles": [...],
-    "lanes": [...],
-    "timestamp": "2025-10-26T08:30:00.000Z"
+    "vehicleCount": 45,
+    "lanes": [
+      {
+        "laneNumber": 11,
+        "queueLength": 12.3,
+        "speed": 45.5,
+        "occupancy": 0.7
+      }
+    ],
+    "timestamp": "2025-10-29T10:30:00.000Z"
   }
 }
 ```
 
-### Video Stream Updates
+#### Vehicle Tracking Updates (`tracking` channel)
 
-**Endpoint**: `ws://localhost:3000/ws/video`
-
-**Description**: WebSocket connection for video stream status updates.
-
-**Message Format**:
+**Subscribe Message**:
 ```json
 {
-  "type": "stream_update",
+  "type": "subscribe",
+  "channel": "tracking",
+  "deviceId": "P1-center"
+}
+```
+
+**Update Message**:
+```json
+{
+  "type": "tracking_update",
+  "channel": "tracking",
+  "deviceId": "P1-center",
   "data": {
-    "cameraId": "camera_1761466795351_gtiooghna",
-    "status": "live",
-    "viewerCount": 2
+    "vehicles": [
+      {
+        "id": "12345",
+        "position": { "x": 10.5, "y": 2.3 },
+        "speed": 45.5,
+        "vehicleType": "car"
+      }
+    ],
+    "timestamp": "2025-10-29T10:30:00.000Z"
   }
+}
+```
+
+#### Classification Updates (`classification` channel)
+
+**Subscribe Message**:
+```json
+{
+  "type": "subscribe",
+  "channel": "classification",
+  "deviceId": "P1-center"
+}
+```
+
+**Update Message**:
+```json
+{
+  "type": "classification_update",
+  "channel": "classification",
+  "deviceId": "P1-center",
+  "data": {
+    "vehicleType": "car",
+    "laneNumber": 11,
+    "speed": 45.5,
+    "timestamp": "2025-10-29T10:30:00.000Z"
+  }
+}
+```
+
+#### Video Stream Updates (`video` channel)
+
+**Subscribe Message**:
+```json
+{
+  "type": "subscribe",
+  "channel": "video",
+  "cameraId": "camera_123"
+}
+```
+
+**Update Message**:
+```json
+{
+  "type": "video_update",
+  "channel": "video",
+  "data": {
+    "cameraId": "camera_123",
+    "status": "live",
+    "viewerCount": 2,
+    "streamHealth": "good"
+  }
+}
+```
+
+### Connection Management
+
+**Client Example (JavaScript)**:
+```javascript
+// Connect to WebSocket server
+const ws = new WebSocket('ws://localhost:8080');
+
+// Handle connection open
+ws.onopen = () => {
+  console.log('Connected to WebSocket server');
+
+  // Subscribe to dashboard updates for device P1-center
+  ws.send(JSON.stringify({
+    type: 'subscribe',
+    channel: 'dashboard',
+    deviceId: 'P1-center'
+  }));
+};
+
+// Handle incoming messages
+ws.onmessage = (event) => {
+  const message = JSON.parse(event.data);
+  console.log('Received:', message);
+
+  if (message.type === 'dashboard_update') {
+    // Update UI with new data
+    updateDashboard(message.data);
+  }
+};
+
+// Handle connection close
+ws.onclose = () => {
+  console.log('Disconnected from WebSocket server');
+  // Implement reconnection logic
+};
+
+// Handle errors
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+```
+
+**Unsubscribe Message**:
+```json
+{
+  "type": "unsubscribe",
+  "channel": "dashboard",
+  "deviceId": "P1-center"
+}
+```
+
+### Heartbeat / Keep-Alive
+
+The server sends periodic ping messages to keep connections alive:
+
+**Ping Message**:
+```json
+{
+  "type": "ping",
+  "timestamp": "2025-10-29T10:30:00.000Z"
+}
+```
+
+**Client Response**:
+```json
+{
+  "type": "pong",
+  "timestamp": "2025-10-29T10:30:00.000Z"
 }
 ```
 
@@ -772,6 +1480,31 @@ A Postman collection is available for testing all API endpoints. Import the coll
 
 ## Changelog
 
+### Version 2.0.0 (2025-10-29)
+
+- **Breaking Changes**:
+  - MongoDB-first architecture (NO in-memory caching)
+  - Unified WebSocket server on port 8080
+  - All endpoints require `device` or `deviceId` parameter
+
+- **New Features**:
+  - Lane Configuration API (`/api/lane-config`)
+  - Lane direction tagging (incoming/outgoing)
+  - Enhanced Vehicle Tracking API with real-time coordinates
+  - Multi-device support across all endpoints
+  - WebSocket channel-based subscriptions
+  - Analytics export in multiple formats (CSV, JSON, Excel, PDF)
+  - Advanced KPIs and anomaly detection
+  - Traffic pattern analysis
+
+- **Improvements**:
+  - Direct MongoDB queries with aggregation pipelines
+  - Real-time Redis Pub/Sub → MongoDB integration
+  - Improved classification accuracy with official vehicle type mapping
+  - Enhanced authentication and rate limiting
+  - Better error handling and validation
+  - Comprehensive API documentation update
+
 ### Version 1.0.0 (2025-10-26)
 
 - Initial API release
@@ -784,4 +1517,23 @@ A Postman collection is available for testing all API endpoints. Import the coll
 
 ---
 
-For additional support or questions about the API, please refer to the main documentation or contact the development team.
+## Additional Resources
+
+- **Setup Guide**: See [ENVIRONMENT_SETUP.md](./ENVIRONMENT_SETUP.md) for environment configuration
+- **Quick Reference**: See [QUICK_REFERENCE.md](./QUICK_REFERENCE.md) for common commands
+- **Development Guidelines**: See [CLAUDE.md](./CLAUDE.md) for development best practices
+- **Deployment Guide**: See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for production deployment
+
+## Support
+
+For additional support or questions about the API:
+- Check the troubleshooting section in [ENVIRONMENT_SETUP.md](./ENVIRONMENT_SETUP.md)
+- Review [QUICK_REFERENCE.md](./QUICK_REFERENCE.md) for common issues
+- Contact the development team
+- Open an issue on GitHub
+
+---
+
+**Last Updated**: 2025-10-29
+**API Version**: 2.0.0
+**Documentation Version**: 2.0.0
