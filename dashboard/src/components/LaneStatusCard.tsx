@@ -95,7 +95,24 @@ export default function LaneStatusCard({ data, compact = false, customName }: La
           {/* Space Occupancy */}
           <div className="mb-3">
             <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-gray-500">Space</p>
+              <div className="flex items-center space-x-1 group">
+                <p className="text-xs text-gray-500">Space</p>
+                <div className="relative">
+                  <svg
+                    className="w-3 h-3 text-gray-400 cursor-help"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    title="Percentage of lane length covered by vehicles"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-48 p-2 text-xs text-white bg-gray-900 rounded-lg shadow-lg">
+                    <strong>Space Occupancy:</strong> % of lane length covered by vehicles. Indicates physical congestion level.
+                    <div className="absolute bottom-0 left-2 transform translate-y-1/2 rotate-45 w-2 h-2 bg-gray-900"></div>
+                  </div>
+                </div>
+              </div>
               <p className={`text-xs font-semibold ${spaceOccupancy.textColor}`}>
                 {formatOccupancy(data.occupancy.space)}
               </p>
@@ -111,7 +128,24 @@ export default function LaneStatusCard({ data, compact = false, customName }: La
           {/* Time Occupancy */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-gray-500">Time</p>
+              <div className="flex items-center space-x-1 group">
+                <p className="text-xs text-gray-500">Time</p>
+                <div className="relative">
+                  <svg
+                    className="w-3 h-3 text-gray-400 cursor-help"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    title="Percentage of time detection point is occupied"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-48 p-2 text-xs text-white bg-gray-900 rounded-lg shadow-lg">
+                    <strong>Time Occupancy:</strong> % of time vehicles are present at detection point. Indicates flow rate and demand.
+                    <div className="absolute bottom-0 left-2 transform translate-y-1/2 rotate-45 w-2 h-2 bg-gray-900"></div>
+                  </div>
+                </div>
+              </div>
               <p className={`text-xs font-semibold ${timeOccupancy.textColor}`}>
                 {formatOccupancy(data.occupancy.time)}
               </p>
