@@ -1,7 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { useControlCenter } from '@/contexts/ControlCenterContext';
 import LaneStatusCard from './LaneStatusCard';
+import LaneConfigModal from './LaneConfigModal';
+import { useLaneConfig } from '@/hooks/useLaneConfig';
 
 interface LaneStatusPanelProps {
   compact?: boolean;
@@ -9,6 +12,11 @@ interface LaneStatusPanelProps {
 
 export default function LaneStatusPanel({ compact = false }: LaneStatusPanelProps) {
   const { laneStatus, lastLaneUpdate } = useControlCenter();
+  const { getLaneName } = useLaneConfig();
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+
+  // Extract unique lane numbers from lane status data
+  const detectedLanes = Array.from(new Set(laneStatus.map(l => l.lane.number))).filter(n => n !== 0);
 
   return (
     <div className="h-full bg-gray-50 rounded-lg border border-gray-200 flex flex-col">
@@ -23,14 +31,28 @@ export default function LaneStatusPanel({ compact = false }: LaneStatusPanelProp
               </p>
             )}
           </div>
-          {lastLaneUpdate && (
-            <div className="text-right">
-              <p className="text-xs text-gray-500">Last Update</p>
-              <p className="text-xs font-medium text-gray-700">
-                {lastLaneUpdate.toLocaleTimeString()}
-              </p>
-            </div>
-          )}
+          <div className="flex items-center space-x-3">
+            {/* Settings Button */}
+            <button
+              onClick={() => setIsConfigModalOpen(true)}
+              className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              title="Configure Lane Names"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+
+            {lastLaneUpdate && (
+              <div className="text-right">
+                <p className="text-xs text-gray-500">Last Update</p>
+                <p className="text-xs font-medium text-gray-700">
+                  {lastLaneUpdate.toLocaleTimeString()}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -65,11 +87,23 @@ export default function LaneStatusPanel({ compact = false }: LaneStatusPanelProp
           // Lane Cards - 3-column grid for compact mode, single column for regular
           <div className={compact ? 'grid grid-cols-3 gap-2' : 'space-y-4'}>
             {laneStatus.map((lane, index) => (
-              <LaneStatusCard key={`lane-${lane.lane.number}-${index}`} data={lane} compact={compact} />
+              <LaneStatusCard
+                key={`lane-${lane.lane.number}-${index}`}
+                data={lane}
+                compact={compact}
+                customName={getLaneName(lane.lane.number)}
+              />
             ))}
           </div>
         )}
       </div>
+
+      {/* Lane Configuration Modal */}
+      <LaneConfigModal
+        isOpen={isConfigModalOpen}
+        onClose={() => setIsConfigModalOpen(false)}
+        lanes={detectedLanes}
+      />
 
       {/* Auto-refresh indicator - Hidden in compact mode */}
       {!compact && laneStatus.length > 0 && (

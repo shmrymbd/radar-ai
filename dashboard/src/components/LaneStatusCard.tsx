@@ -13,42 +13,37 @@ import {
 interface LaneStatusCardProps {
   data: LaneStatusData;
   compact?: boolean;
+  customName?: string;
 }
 
-export default function LaneStatusCard({ data, compact = false }: LaneStatusCardProps) {
+export default function LaneStatusCard({ data, compact = false, customName }: LaneStatusCardProps) {
+  const displayName = customName || `Lane ${data.lane.number}`;
   const statusInfo = getStatusIndicator(data.lane.status);
   const spaceOccupancy = getOccupancyColor(data.occupancy.space);
   const timeOccupancy = getOccupancyColor(data.occupancy.time);
 
   if (compact) {
+    // Determine if lane has queue
+    const hasQueue = data.queue.length > 0;
+    const statusBadgeColor = hasQueue ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800';
+    const statusText = hasQueue ? 'Queued' : 'Free Flow';
+
     return (
-      <div className="bg-white rounded-lg border border-gray-200 p-2 shadow-sm hover:shadow-md transition-shadow">
-        {/* Compact Header */}
-        <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-200">
-          <h3 className="text-sm font-bold text-gray-900">Lane {data.lane.number}</h3>
-          <div className={`w-2 h-2 rounded-full ${statusInfo.dotColor}`}></div>
+      <div className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm hover:shadow-md transition-shadow">
+        {/* Compact Header with Badge */}
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-900">{displayName}</h3>
+          <span className={`px-2 py-0.5 text-xs font-medium rounded ${statusBadgeColor}`}>
+            {statusText}
+          </span>
         </div>
 
-        {/* Compact Metrics - Single Column */}
-        <div className="space-y-1.5 text-xs">
-          <div className="flex justify-between">
-            <span className="text-gray-500">Queue:</span>
-            <span className="font-semibold">{formatQueueLength(data.queue.length)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Vehicles:</span>
-            <span className="font-semibold">{data.queue.vehicles}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Speed:</span>
-            <span className="font-semibold">{formatSpeed(data.speed.average)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">Occupancy:</span>
-            <span className={`font-semibold ${spaceOccupancy.textColor}`}>
-              {formatOccupancy(data.occupancy.space)}
-            </span>
-          </div>
+        {/* Compact Metrics - Simple Text Rows */}
+        <div className="space-y-1 text-xs text-gray-600">
+          <div>Queue: <span className="text-gray-900 font-medium">{formatQueueLength(data.queue.length)}</span></div>
+          <div>Vehicles: <span className="text-gray-900 font-medium">{data.queue.vehicles}</span></div>
+          <div>Speed: <span className="text-gray-900 font-medium">{formatSpeed(data.speed.average)}</span></div>
+          <div>Occupancy: <span className="text-gray-900 font-medium">{formatOccupancy(data.occupancy.space)}</span></div>
         </div>
       </div>
     );
@@ -59,7 +54,7 @@ export default function LaneStatusCard({ data, compact = false }: LaneStatusCard
       {/* Lane Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
         <div>
-          <h3 className="text-lg font-bold text-gray-900">Lane {data.lane.number}</h3>
+          <h3 className="text-lg font-bold text-gray-900">{displayName}</h3>
           <p className="text-xs text-gray-500 mt-0.5">
             Updated: {new Date(data.timestamp).toLocaleTimeString()}
           </p>
