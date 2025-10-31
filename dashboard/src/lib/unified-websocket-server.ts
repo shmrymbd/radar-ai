@@ -1,7 +1,13 @@
 // Load environment variables from .env.local
-import { config } from 'dotenv';
-import { resolve } from 'path';
-config({ path: resolve(__dirname, '../../.env.local') });
+// Using require for dotenv in ts-node context
+try {
+  const dotenv = require('dotenv');
+  const { resolve } = require('path');
+  dotenv.config({ path: resolve(__dirname, '../../.env.local') });
+} catch (e) {
+  // dotenv is optional if environment variables are already set
+  console.warn('dotenv not available, using process.env directly');
+}
 
 import { WebSocketServer, WebSocket } from 'ws';
 import { getRedisClient } from './redis';
