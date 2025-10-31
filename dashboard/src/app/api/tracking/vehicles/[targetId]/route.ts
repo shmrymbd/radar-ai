@@ -62,9 +62,13 @@ export async function GET(
       frameType: objectData[0].frameType
     };
 
+    // Get device ID from object data
+    const deviceId = objectData[0].deviceId || 'P1-center';
+    vehicleTracker.setDeviceId(deviceId);
+    
     // Process the latest object data
-    vehicleTracker.processObjectData(rawObjectData);
-    const vehicle = vehicleTracker.getVehicle(targetId);
+    await vehicleTracker.processObjectData(rawObjectData);
+    const vehicle = await vehicleTracker.getVehicle(targetId);
 
     if (!vehicle) {
       return NextResponse.json({

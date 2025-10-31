@@ -134,9 +134,12 @@ export class UnifiedWebSocketServer {
       // Register callback for ObjectData (tracking updates) - follows radar transmission rate
       this.redisPubSub.onObjectDataMessage(async (deviceId, data) => {
         try {
+          // Set device ID for VehicleTracker
+          this.vehicleTracker.setDeviceId(deviceId);
+          
           // Convert ProcessedObjectData to ObjectData format for VehicleTracker
           const rawObjectData = this.convertToObjectData(data);
-          const trackingUpdate = this.vehicleTracker.processObjectData(rawObjectData);
+          const trackingUpdate = await this.vehicleTracker.processObjectData(rawObjectData);
 
           // Broadcast to all clients subscribed to tracking channel
           this.broadcastToChannel('tracking', {
@@ -149,7 +152,7 @@ export class UnifiedWebSocketServer {
           // Also send periodic tracking summary (throttled to avoid spam)
           const now = Date.now();
           if (!this.lastTrackingSummary || (now - this.lastTrackingSummary) >= 1000) {
-            const trackingData = this.vehicleTracker.getTrackingData();
+            const trackingData = await this.vehicleTracker.getTrackingData();
             this.broadcastToChannel('tracking', {
               type: 'tracking_summary',
               data: trackingData,
@@ -321,13 +324,15 @@ export class UnifiedWebSocketServer {
         break;
       case 'get_vehicle_details':
         if (data.targetId) {
-          const vehicle = this.vehicleTracker.getVehicle(data.targetId);
-          this.sendMessage(ws, { type: 'vehicle_details', data: vehicle });
+          this.vehicleTracker.getVehicle(data.targetId).then(vehicle => {
+            this.sendMessage(ws, { type: 'vehicle_details', data: vehicle });
+          });
         }
         break;
       case 'get_visible_vehicles':
-        const visibleVehicles = this.vehicleTracker.getVisibleVehicles();
-        this.sendMessage(ws, { type: 'visible_vehicles', data: visibleVehicles });
+        this.vehicleTracker.getVisibleVehicles().then(visibleVehicles => {
+          this.sendMessage(ws, { type: 'visible_vehicles', data: visibleVehicles });
+        });
         break;
 
       // Classification data requests
@@ -512,9 +517,9 @@ export class UnifiedWebSocketServer {
     }
   }
 
-  private sendTrackingData(ws: WebSocket) {
+  private async sendTrackingData(ws: WebSocket) {
     try {
-      const trackingData = this.vehicleTracker.getTrackingData();
+      const trackingData = await this.vehicleTracker.getTrackingData();
       this.sendMessage(ws, { 
         type: 'tracking_data', 
         data: trackingData 
@@ -614,6 +619,7 @@ export class UnifiedWebSocketServer {
     try {
       // Set device prefix to 'P1-center' for now (TODO: make this device-aware)
       this.redisStorage.setDevicePrefix('P1-center');
+      this.vehicleTracker.setDeviceId('P1-center');
 
       // Get latest object data from Redis
       const objectData = await this.redisStorage.getLatestObjectData(1);
@@ -621,7 +627,7 @@ export class UnifiedWebSocketServer {
       if (objectData.length > 0) {
         // Convert ProcessedObjectData to ObjectData format for VehicleTracker
         const rawObjectData = this.convertToObjectData(objectData[0]);
-        const trackingUpdate = this.vehicleTracker.processObjectData(rawObjectData);
+        const trackingUpdate = await this.vehicleTracker.processObjectData(rawObjectData);
 
         // Broadcast to all clients subscribed to tracking
         this.broadcastToChannel('tracking', {
@@ -634,7 +640,7 @@ export class UnifiedWebSocketServer {
       }
 
       // Send periodic tracking summary
-      const trackingData = this.vehicleTracker.getTrackingData();
+      const trackingData = await this.vehicleTracker.getTrackingData();
       this.broadcastToChannel('tracking', {
         type: 'tracking_summary',
         data: trackingData

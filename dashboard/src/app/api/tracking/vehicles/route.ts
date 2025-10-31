@@ -77,9 +77,12 @@ export async function GET(request: NextRequest) {
       frameType: objectData[0].frameType
     };
 
+    // Set device ID for tracker
+    vehicleTracker.setDeviceId(deviceId);
+    
     // Process the latest object data
-    vehicleTracker.processObjectData(rawObjectData);
-    const visibleVehicles = vehicleTracker.getVisibleVehicles();
+    await vehicleTracker.processObjectData(rawObjectData);
+    const visibleVehicles = await vehicleTracker.getVisibleVehicles();
 
     return NextResponse.json({
       success: true,

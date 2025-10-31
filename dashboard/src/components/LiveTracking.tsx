@@ -1115,9 +1115,18 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
                 }
               });
 
+              // Get the IDs of vehicles in the current update
+              const updatedVehicleIds = new Set(incomingVehicles.map(v => v.targetId));
+
+              // Keep previous vehicles that weren't in the current update (for retention)
+              const retainedVehicles = prevVehicles.filter(v => !updatedVehicleIds.has(v.targetId));
+
+              // Merge updated vehicles with retained vehicles
+              const allVehicles = [...updatedVehicles, ...retainedVehicles];
+
               // Accumulate trail history for heat map
               const newTrailHistory = new Map(globalTrailHistory);
-              updatedVehicles.forEach(vehicle => {
+              allVehicles.forEach(vehicle => {
                 vehicle.trajectory.forEach(pos => {
                   const key = getGridKey(pos.x, pos.y);
                   newTrailHistory.set(key, (newTrailHistory.get(key) || 0) + 1);
@@ -1125,7 +1134,7 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
               });
               setGlobalTrailHistory(newTrailHistory);
 
-              return updatedVehicles;
+              return allVehicles;
             });
           }
         } else if (data.type === 'tracking_summary') {

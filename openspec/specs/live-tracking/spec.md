@@ -1,7 +1,7 @@
 # live-tracking Specification
 
 ## Purpose
-Real-time vehicle tracking and visualization system that displays live vehicle positions, trajectories, and automatically infers road lane topology from vehicle movement patterns. Provides interactive visualization with heat maps, trail-based road detection, and configurable rendering options. Uses event-driven architecture to match radar transmission rates for minimal latency.
+Real-time vehicle tracking and visualization system that displays live vehicle positions, trajectories, and automatically infers road lane topology from vehicle movement patterns. Provides interactive visualization with heat maps, trail-based road detection, and configurable rendering options. Uses event-driven architecture to match radar transmission rates for minimal latency. All tracking data is stored in Redis for persistence, scalability, and multi-instance coordination.
 ## Requirements
 ### Requirement: Vehicle Type-Based Trail Colors
 The system SHALL display trails using colors that correspond to vehicle types for improved visual distinction.

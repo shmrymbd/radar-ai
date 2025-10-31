@@ -1,17 +1,19 @@
 /**
  * Vehicle Tracker
  * Handles vehicle tracking and movement calculations
+ * Uses Redis for all data storage (no in-memory cache)
  */
 
 import { ObjectData, VehicleEntry } from '../types/radar';
 import { VehiclePosition, VehicleState, TrackingUpdate, VehicleTrackingData, CoordinateTransform, DETECTION_ZONE, TrailConfig } from '../types/tracking';
+import { VehicleTrackingRedis } from './vehicle-tracking-redis';
 
 export class VehicleTracker {
-  private vehicles: Map<string, VehicleState> = new Map();
-  private vehicleHistory: Map<string, VehiclePosition[]> = new Map();
+  private trackingRedis: VehicleTrackingRedis;
   private trailConfig: TrailConfig;
+  private deviceId: string = 'P1-center';
 
-  constructor(trailConfig?: Partial<TrailConfig>) {
+  constructor(trailConfig?: Partial<TrailConfig>, deviceId?: string) {
     this.trailConfig = {
       length: trailConfig?.length || 50,
       opacity: trailConfig?.opacity || 0.8,
@@ -21,13 +23,29 @@ export class VehicleTracker {
       smoothness: trailConfig?.smoothness || 0.5,
       persistence: trailConfig?.persistence || false
     };
-    console.log('🚗 VehicleTracker initialized with trail config:', this.trailConfig);
+    
+    if (deviceId) {
+      this.deviceId = deviceId;
+    }
+    
+    this.trackingRedis = VehicleTrackingRedis.getInstance();
+    this.trackingRedis.setDeviceId(this.deviceId);
+    
+    console.log(`🚗 VehicleTracker initialized with Redis storage (device: ${this.deviceId})`);
+  }
+
+  /**
+   * Set device ID for tracking
+   */
+  public setDeviceId(deviceId: string): void {
+    this.deviceId = deviceId;
+    this.trackingRedis.setDeviceId(deviceId);
   }
 
   /**
    * Process ObjectData and update vehicle tracking
    */
-  public processObjectData(objectData: ObjectData): TrackingUpdate {
+  public async processObjectData(objectData: ObjectData): Promise<TrackingUpdate> {
     const currentTime = new Date();
     const vehicles: VehicleState[] = [];
 
@@ -49,21 +67,25 @@ export class VehicleTracker {
         acceleration: entry.acceleration
       };
 
+      // Get existing vehicle state from Redis
+      const existingVehicle = await this.trackingRedis.getVehicleState(entry.targetId);
+      const trajectory = existingVehicle ? await this.trackingRedis.getVehicleHistory(entry.targetId) : [];
+
       // Update vehicle state
       const vehicleState: VehicleState = {
         targetId: entry.targetId,
         position: vehiclePosition,
-        trajectory: this.getVehicleTrajectory(entry.targetId),
+        trajectory: trajectory,
         isVisible: this.isVehicleInDetectionZone(vehiclePosition),
         lastSeen: currentTime,
-        enterTime: this.getVehicleEnterTime(entry.targetId, currentTime)
+        enterTime: existingVehicle?.enterTime || currentTime
       };
 
-      // Update vehicle history
-      this.updateVehicleHistory(entry.targetId, vehiclePosition);
+      // Update vehicle history in Redis
+      await this.trackingRedis.addToVehicleHistory(entry.targetId, vehiclePosition, this.trailConfig.length);
       
-      // Update vehicle state
-      this.vehicles.set(entry.targetId, vehicleState);
+      // Update vehicle state in Redis
+      await this.trackingRedis.setVehicleState(entry.targetId, vehicleState);
       vehicles.push(vehicleState);
     }
 
@@ -77,8 +99,8 @@ export class VehicleTracker {
   /**
    * Get current tracking data
    */
-  public getTrackingData(): VehicleTrackingData {
-    const allVehicles = Array.from(this.vehicles.values());
+  public async getTrackingData(): Promise<VehicleTrackingData> {
+    const allVehicles = await this.trackingRedis.getAllVehicleStates();
     const visibleVehicles = allVehicles.filter(v => v.isVisible);
     
     const averageSpeed = visibleVehicles.length > 0 
@@ -98,45 +120,15 @@ export class VehicleTracker {
   /**
    * Get visible vehicles
    */
-  public getVisibleVehicles(): VehicleState[] {
-    return Array.from(this.vehicles.values()).filter(v => v.isVisible);
+  public async getVisibleVehicles(): Promise<VehicleState[]> {
+    return await this.trackingRedis.getVisibleVehicles();
   }
 
   /**
    * Get specific vehicle by ID
    */
-  public getVehicle(targetId: string): VehicleState | undefined {
-    return this.vehicles.get(targetId);
-  }
-
-  /**
-   * Get vehicle trajectory
-   */
-  private getVehicleTrajectory(targetId: string): VehiclePosition[] {
-    return this.vehicleHistory.get(targetId) || [];
-  }
-
-  /**
-   * Update vehicle history
-   */
-  private updateVehicleHistory(targetId: string, position: VehiclePosition): void {
-    const history = this.vehicleHistory.get(targetId) || [];
-    history.push(position);
-    
-    // Keep only recent history based on trail configuration
-    if (history.length > this.trailConfig.length) {
-      history.shift();
-    }
-    
-    this.vehicleHistory.set(targetId, history);
-  }
-
-  /**
-   * Get vehicle enter time
-   */
-  private getVehicleEnterTime(targetId: string, currentTime: Date): Date {
-    const existingVehicle = this.vehicles.get(targetId);
-    return existingVehicle?.enterTime || currentTime;
+  public async getVehicle(targetId: string): Promise<VehicleState | undefined> {
+    return await this.trackingRedis.getVehicleState(targetId);
   }
 
   /**
@@ -193,15 +185,7 @@ export class VehicleTracker {
   /**
    * Clean up old vehicles
    */
-  public cleanupOldVehicles(maxAge: number = 300000): void { // 5 minutes
-    const now = new Date();
-    const cutoffTime = new Date(now.getTime() - maxAge);
-    
-    for (const [targetId, vehicle] of Array.from(this.vehicles.entries())) {
-      if (vehicle.lastSeen < cutoffTime) {
-        this.vehicles.delete(targetId);
-        this.vehicleHistory.delete(targetId);
-      }
-    }
+  public async cleanupOldVehicles(maxAge: number = 300000): Promise<void> { // 5 minutes
+    await this.trackingRedis.cleanupOldVehicles(maxAge);
   }
 }
