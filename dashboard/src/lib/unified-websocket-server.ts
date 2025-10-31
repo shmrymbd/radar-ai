@@ -134,12 +134,18 @@ export class UnifiedWebSocketServer {
       // Register callback for ObjectData (tracking updates) - follows radar transmission rate
       this.redisPubSub.onObjectDataMessage(async (deviceId, data) => {
         try {
+          // Count subscribers
+          const subscriberCount = Array.from(this.clients.values()).filter(c => c.subscribedChannels.has('tracking')).length;
+          console.log(`🔔 ObjectData received: ${data.numEntries || 0} vehicles, ${subscriberCount} tracking subscribers`);
+
           // Set device ID for VehicleTracker
           this.vehicleTracker.setDeviceId(deviceId);
-          
+
           // Convert ProcessedObjectData to ObjectData format for VehicleTracker
           const rawObjectData = this.convertToObjectData(data);
           const trackingUpdate = await this.vehicleTracker.processObjectData(rawObjectData);
+
+          console.log(`📤 Broadcasting tracking_update with ${trackingUpdate.vehicles.length} vehicles to ${subscriberCount} clients`);
 
           // Broadcast to all clients subscribed to tracking channel
           this.broadcastToChannel('tracking', {
@@ -162,7 +168,7 @@ export class UnifiedWebSocketServer {
             this.lastTrackingSummary = now;
           }
 
-          console.log(`📤 Broadcasted ObjectData tracking update for ${deviceId} (${data.numEntries || 0} vehicles)`);
+          console.log(`✅ Tracking update complete for ${deviceId}`);
         } catch (error) {
           console.error(`❌ Error processing ObjectData for ${deviceId}:`, error);
         }
