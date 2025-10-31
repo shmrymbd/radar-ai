@@ -10,6 +10,12 @@ export default function DashboardOverview() {
   const { ws, connectionStatus, subscribeToChannel } = useUnifiedWebSocket();
   const [dashboardData, setDashboardData] = useState<DashboardSummary | null>(null);
   const [deviceKey, setDeviceKey] = useState<string>(selectedDevice.id);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Ensure component is mounted before making API calls
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Subscribe to dashboard channel when WebSocket is connected
   useEffect(() => {
@@ -73,6 +79,11 @@ export default function DashboardOverview() {
 
   // Initial API fetch and polling fallback
   useEffect(() => {
+    // Only fetch data after component is mounted (client-side)
+    if (!isMounted) return;
+    
+    console.log('🚀 DashboardOverview: Component mounted, fetching data...');
+    
     // Initial API fetch
     fetchDashboardData();
 
@@ -85,7 +96,7 @@ export default function DashboardOverview() {
     }, 5000);
 
     return () => clearInterval(pollingInterval);
-  }, [fetchDashboardData, connectionStatus, ws]);
+  }, [isMounted, fetchDashboardData, connectionStatus, ws]);
 
   // Handle device changes - force complete re-render
   useEffect(() => {

@@ -196,13 +196,15 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
     }
   }, [chartType, deviceId]);
 
-  const fetchHistoricalData = useCallback(async () => {
+  const fetchHistoricalData = useCallback(async (forceFresh = false) => {
     setLoading(true);
     setError(null);
 
     try {
+      // Add timestamp to bypass cache when forcing fresh data
+      const cacheBuster = forceFresh ? `&_t=${Date.now()}` : '';
       const response = await fetch(
-        `/api/classification/historical?deviceId=${deviceId}&timePeriod=${timePeriod}&sortOrder=desc`
+        `/api/classification/historical?deviceId=${deviceId}&timePeriod=${timePeriod}&sortOrder=desc${cacheBuster}`
       );
 
       if (!response.ok) {
@@ -211,6 +213,9 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
 
       const result = await response.json();
       setHistoricalData(result.data || []);
+
+      // Log cache status
+      console.log(`📊 Historical data loaded (cached: ${result.cached || false}, records: ${result.data?.length || 0})`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       console.error('Error fetching historical data:', err);
@@ -492,8 +497,8 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
 
     // Sort data by timeSlot to ensure proper chronological order
     const sortedData = [...historicalData].sort((a, b) => {
-      const dateA = parseTimeSlot(a.timeSlot);
-      const dateB = parseTimeSlot(b.timeSlot);
+      const dateA = parseUTC8TimeSlot(a.timeSlot);
+      const dateB = parseUTC8TimeSlot(b.timeSlot);
       return dateA.getTime() - dateB.getTime();
     });
 
@@ -539,7 +544,8 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
 
     // Group data by hour
     const hourlyData = historicalData.reduce((acc, data) => {
-      const hour = parseTimeSlot(data.timeSlot).getHours();
+      const date = parseUTC8TimeSlot(data.timeSlot);
+      const hour = date.getHours();
       if (!acc[hour]) {
         acc[hour] = { hour, totalVehicles: 0, count: 0 };
       }
@@ -557,10 +563,16 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
       }))
       .sort((a, b) => a.hour - b.hour);
 
+    // Check if we have any hourly stats
+    if (hourlyStats.length === 0) {
+      return <div className="text-center text-gray-500 py-8">No hourly data available for analysis</div>;
+    }
+
     const maxAverage = Math.max(...hourlyStats.map(h => h.averageVehicles));
+    // Provide initial value to reduce to prevent error on empty array
     const peakHour = hourlyStats.reduce((max, current) =>
       current.averageVehicles > max.averageVehicles ? current : max
-    );
+    , hourlyStats[0]);
 
     return (
       <div className="space-y-6">
@@ -1350,11 +1362,12 @@ export default function HistoricalCharts({ deviceId }: HistoricalChartsProps) {
         </div>
 
         <button
-          onClick={chartType === 'comparative' ? fetchComparativeData : fetchHistoricalData}
+          onClick={() => chartType === 'comparative' ? fetchComparativeData() : fetchHistoricalData(true)}
           disabled={loading}
           className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+          title="Force refresh data (bypass cache)"
         >
-          {loading ? 'Loading...' : 'Refresh'}
+          {loading ? 'Loading...' : '🔄 Refresh'}
         </button>
 
         {/* Export Buttons */}

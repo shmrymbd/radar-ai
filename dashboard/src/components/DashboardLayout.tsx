@@ -14,9 +14,10 @@ export default function DashboardLayout({ children, activeTab, onTabChange }: Da
   const tabs = [
     { id: 'overview', label: 'Overview', icon: '📊' },
     { id: 'tracking', label: 'Live Tracking', icon: '🚗' },
+    { id: 'analytics', label: 'Analytics', icon: '📈' },
+    { id: 'control-center', label: 'Control Center', icon: '🎛️' },
     { id: 'classification', label: 'Classification', icon: '🚙' },
     { id: 'video-streaming', label: 'Video Streaming', icon: '📹' },
-    { id: 'analytics', label: 'Analytics', icon: '📈' },
     { id: 'settings', label: 'Settings', icon: '⚙️' }
   ];
 

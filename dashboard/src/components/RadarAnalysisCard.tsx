@@ -83,7 +83,7 @@ interface RadarAnalysis {
     maxQueue: number; // meters
     dischargeRate: number; // vehicles per minute
     throughput: number; // vehicles per minute
-    signalPhase: 'RED' | 'GREEN' | 'YELLOW'; // inferred signal phase
+    signalPhase: 'RED' | 'GREEN'; // inferred signal phase
   };
 }
 
@@ -140,7 +140,7 @@ export default function RadarAnalysisCard({
           maxQueue: 0,
           dischargeRate: 0,
           throughput: 0,
-          signalPhase: 'YELLOW' as const
+          signalPhase: 'GREEN' as const
         };
       }
 
@@ -185,57 +185,73 @@ export default function RadarAnalysisCard({
         : 0;
 
       // 4. Discharge Rate: Vehicles clearing intersection per minute
-      // Use actual vehicle spacing and speeds from Redis
-      const flowingLanes = laneStatus.filter(lane => (lane.speed?.average || 0) > 20);
+      // For flowing lanes, use actual speeds; for stopped/queued lanes, use saturation flow estimates
       let dischargeRate = 0;
 
-      flowingLanes.forEach(lane => {
+      laneStatus.forEach(lane => {
         const speed = lane.speed?.average || 0; // km/h (actual measured speed)
-        const vehicleSpacing = lane.vehicleSpacing || 10; // meters (actual spacing from radar)
+        const queueLength = lane.queue?.length || 0;
+        const vehicleSpacing = lane.vehicleSpacing || 5; // meters (actual spacing from radar)
         const vehiclesOnline = lane.vehiclesOnline || 0; // actual vehicles in lane
 
-        if (vehicleSpacing > 0 && speed > 0) {
-          // Vehicles per minute = (speed in m/min) / (spacing between vehicles)
-          // Convert km/h to m/min: km/h * 1000 / 60
+        if (speed > 20 && vehicleSpacing > 0) {
+          // FLOWING LANE: Use actual measured flow rate
           const speedMetersPerMin = (speed * 1000) / 60;
           const vehiclesPerMin = speedMetersPerMin / vehicleSpacing;
+          dischargeRate += vehiclesPerMin * Math.min(vehiclesOnline / 5, 1);
+        } else if (queueLength > 0) {
+          // STOPPED/QUEUED LANE: Use saturation flow rate estimate
+          // Saturation flow: 1800-2000 veh/hour/lane = ~30 veh/min/lane (typical urban intersection)
+          // This represents the POTENTIAL discharge rate when signal turns green
+          const saturationFlowPerMin = 30; // vehicles/min/lane
+          const queueVehicles = Math.ceil(queueLength / vehicleSpacing);
 
-          // Weight by actual number of vehicles in lane
-          dischargeRate += vehiclesPerMin * Math.min(vehiclesOnline / 5, 1); // normalized by typical lane capacity
+          // Use saturation flow, capped by actual queue size
+          // This shows how fast the queue COULD discharge
+          dischargeRate += Math.min(saturationFlowPerMin, queueVehicles);
         }
       });
 
       // 5. Throughput: Total vehicles processed per minute (all lanes)
-      // Use actual vehicle counts and speeds
+      // Combines actual flow (moving lanes) + potential flow (queued lanes)
       let throughput = 0;
       laneStatus.forEach(lane => {
         const speed = lane.speed?.average || 0; // actual speed from radar
-        const vehicleSpacing = lane.vehicleSpacing || 10; // actual spacing
+        const queueLength = lane.queue?.length || 0;
+        const vehicleSpacing = lane.vehicleSpacing || 5; // actual spacing
         const vehiclesOnline = lane.vehiclesOnline || 0; // actual count
 
-        if (speed > 5 && vehicleSpacing > 0) { // Count all moving lanes (not just stopped)
+        if (speed > 10 && vehicleSpacing > 0) {
+          // MOVING LANE: Use actual measured throughput
           const speedMetersPerMin = (speed * 1000) / 60;
           const vehiclesPerMin = speedMetersPerMin / vehicleSpacing;
-
-          // Throughput is actual flow rate weighted by vehicles present
           throughput += vehiclesPerMin * Math.min(vehiclesOnline / 5, 1);
+        } else if (queueLength > 0) {
+          // QUEUED LANE: Use estimated throughput based on queue
+          // Conservative estimate: 20 veh/min/lane (lower than saturation flow)
+          // Represents average throughput accounting for signal cycles
+          const avgThroughputPerMin = 20; // vehicles/min/lane
+          const queueVehicles = Math.ceil(queueLength / vehicleSpacing);
+
+          // Throughput estimate based on queue size and typical signal timing
+          throughput += Math.min(avgThroughputPerMin, queueVehicles * 0.5);
         }
       });
 
-      // 6. Signal Phase: Infer RED/GREEN/YELLOW from queue and lane speeds
-      const hasAnyQueue = laneStatus.some(lane => (lane.queue?.length || 0) > 0);
-      const allFreeFlow = laneStatus.every(lane => (lane.speed?.average || 0) > 40);
+      // 6. Signal Phase: Infer RED/GREEN from queue and lane speeds
+      // RED: Significant queue (>10m) AND low speeds (<10 km/h) = stopped at red light
+      // GREEN: Everything else (flowing or transitioning)
+      const hasSignificantStoppedQueue = laneStatus.some(lane =>
+        (lane.queue?.length || 0) > 10 && (lane.speed?.average || 0) < 10
+      );
 
-      let signalPhase: 'RED' | 'GREEN' | 'YELLOW';
-      if (hasAnyQueue) {
-        // Any lane has queue → RED phase (vehicles waiting at red light)
+      let signalPhase: 'RED' | 'GREEN';
+      if (hasSignificantStoppedQueue) {
+        // Significant queue with stopped traffic → RED phase (vehicles waiting at red light)
         signalPhase = 'RED';
-      } else if (allFreeFlow) {
-        // All lanes free flowing → GREEN phase
-        signalPhase = 'GREEN';
       } else {
-        // Transitioning or mixed conditions → YELLOW phase
-        signalPhase = 'YELLOW';
+        // All other conditions → GREEN phase (flowing, transitioning, or brief queuing)
+        signalPhase = 'GREEN';
       }
 
       return {
@@ -454,22 +470,19 @@ export default function RadarAnalysisCard({
     return (
       <div className={`bg-white rounded-lg shadow p-3 ${className}`}>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-gray-900">Radar Analysis</h3>
+          <h3 className="text-sm font-semibold text-gray-900">Phase Analysis</h3>
           <div className="flex items-center gap-2">
-            {/* Traffic Light Status */}
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${
-              analysis.trafficMetrics.signalPhase === 'RED' ? 'bg-red-100' :
-              analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-100' : 'bg-yellow-100'
+            {/* Traffic Light Status - Temporarily Hidden for Study */}
+            {/* <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${
+              analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-100' : 'bg-red-100'
             }`}>
               <div className={`w-3 h-3 rounded-full ${
-                analysis.trafficMetrics.signalPhase === 'RED' ? 'bg-red-500 animate-pulse' :
-                analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-500' : 'bg-yellow-500'
+                analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-500' : 'bg-red-500 animate-pulse'
               }`}></div>
               <span className={`text-xs font-bold ${
-                analysis.trafficMetrics.signalPhase === 'RED' ? 'text-red-700' :
-                analysis.trafficMetrics.signalPhase === 'GREEN' ? 'text-green-700' : 'text-yellow-700'
+                analysis.trafficMetrics.signalPhase === 'GREEN' ? 'text-green-700' : 'text-red-700'
               }`}>{analysis.trafficMetrics.signalPhase}</span>
-            </div>
+            </div> */}
             <div className={`w-2 h-2 rounded-full ${objectDataValidation.hasRealData ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
           </div>
         </div>
@@ -628,20 +641,17 @@ export default function RadarAnalysisCard({
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-gray-900">Radar Data Analysis & Lane Scenarios</h3>
         <div className="flex items-center space-x-3 text-xs">
-          {/* Traffic Light Status */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
-            analysis.trafficMetrics.signalPhase === 'RED' ? 'bg-red-100' :
-            analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-100' : 'bg-yellow-100'
+          {/* Traffic Light Status - Temporarily Hidden for Study */}
+          {/* <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${
+            analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-100' : 'bg-red-100'
           }`}>
             <div className={`w-4 h-4 rounded-full ${
-              analysis.trafficMetrics.signalPhase === 'RED' ? 'bg-red-500 animate-pulse' :
-              analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-500' : 'bg-yellow-500'
+              analysis.trafficMetrics.signalPhase === 'GREEN' ? 'bg-green-500' : 'bg-red-500 animate-pulse'
             }`}></div>
             <span className={`text-sm font-bold ${
-              analysis.trafficMetrics.signalPhase === 'RED' ? 'text-red-700' :
-              analysis.trafficMetrics.signalPhase === 'GREEN' ? 'text-green-700' : 'text-yellow-700'
+              analysis.trafficMetrics.signalPhase === 'GREEN' ? 'text-green-700' : 'text-red-700'
             }`}>{analysis.trafficMetrics.signalPhase}</span>
-          </div>
+          </div> */}
           <div className="flex items-center space-x-2">
             <div className={`w-2 h-2 rounded-full ${objectDataValidation.hasRealData ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
             <span className="text-gray-600">{objectDataValidation.dataSource}</span>
