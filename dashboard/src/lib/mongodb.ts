@@ -8,6 +8,14 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
 /**
+ * Sanitize MongoDB URI for logging
+ * Removes password from connection string to prevent credential exposure
+ */
+function sanitizeMongoUri(uri: string): string {
+  return uri.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@');
+}
+
+/**
  * Sleep utility for retry delays
  */
 function sleep(ms: number): Promise<void> {
@@ -44,13 +52,14 @@ export async function connectToDatabase(): Promise<Db> {
   isConnecting = true;
 
   const uri = `mongodb://${process.env.MONGODB_USERNAME}:${process.env.MONGODB_PASSWORD}@${process.env.MONGODB_HOST}:${process.env.MONGODB_PORT}/${process.env.MONGODB_DASHBOARD_DATABASE}?authSource=${process.env.MONGODB_AUTH_DATABASE}`;
+  const sanitizedUri = sanitizeMongoUri(uri);
 
   let lastError: Error | null = null;
 
   // Retry logic with exponential backoff
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      console.log(`MongoDB connection attempt ${attempt}/${MAX_RETRIES}...`);
+      console.log(`MongoDB connection attempt ${attempt}/${MAX_RETRIES} to ${sanitizedUri}...`);
 
       client = new MongoClient(uri, {
         maxPoolSize: 10,
@@ -75,7 +84,7 @@ export async function connectToDatabase(): Promise<Db> {
       return db;
     } catch (error) {
       lastError = error as Error;
-      console.error(`❌ MongoDB connection attempt ${attempt} failed:`, error);
+      console.error(`❌ MongoDB connection attempt ${attempt} failed to ${sanitizedUri}:`, error instanceof Error ? error.message : 'Unknown error');
 
       // Clean up failed connection
       if (client) {

@@ -121,8 +121,20 @@ export function ControlCenterProvider({ children }: ControlCenterProviderProps) 
           const processedData: LaneStatusData[] = [];
           const laneStatusData = data.data.laneStatus;
 
-          if (laneStatusData.entries && Array.isArray(laneStatusData.entries)) {
+          console.log('📊 Control Center: Processing lane status data:', {
+            hasEntries: !!laneStatusData?.entries,
+            entriesCount: laneStatusData?.entries?.length || 0,
+            deviceId: data.deviceId
+          });
+
+          if (laneStatusData && laneStatusData.entries && Array.isArray(laneStatusData.entries)) {
             laneStatusData.entries.forEach((entry: any, index: number) => {
+              console.log(`📊 Lane ${index + 1}:`, {
+                laneNumber: entry.lane?.number,
+                queueLength: entry.queue?.length,
+                vehicleCount: entry.queue?.vehicleCount || entry.queue?.vehicles,
+                avgSpeed: entry.speeds?.average
+              });
 
               processedData.push({
                 lane: {
@@ -147,11 +159,13 @@ export function ControlCenterProvider({ children }: ControlCenterProviderProps) 
                 timestamp: new Date()
               });
             });
+          } else {
+            console.warn('⚠️ Control Center: No lane entries found in dashboard data', laneStatusData);
           }
 
           setLaneStatus(processedData);
           setLastLaneUpdate(new Date());
-          console.log('✅ Control Center: Updated lane status via WebSocket');
+          console.log(`✅ Control Center: Updated ${processedData.length} lanes via WebSocket`);
         }
 
         // Process tracking data (vehicle positions)

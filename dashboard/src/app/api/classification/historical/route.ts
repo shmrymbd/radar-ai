@@ -73,33 +73,40 @@ export async function GET(request: NextRequest) {
     // Create time filter based on period
     const timeFilter = createTimeFilter(timePeriod);
 
-    // Check cache first
+    // Check for cache bypass parameter (e.g., _t timestamp from refresh button)
+    const bypassCache = searchParams.has('_t');
+
+    // Check cache first (unless bypassed)
     const cacheKey = { page, limit, sortBy, sortOrder };
-    const cachedData = cache.get(deviceId, timePeriod, cacheKey);
+    if (!bypassCache) {
+      const cachedData = cache.get(deviceId, timePeriod, cacheKey);
 
-    if (cachedData) {
-      const duration = Date.now() - startTime;
-      monitor.recordRequest('/api/classification/historical', 'GET', duration, 200, { cached: true });
+      if (cachedData) {
+        const duration = Date.now() - startTime;
+        monitor.recordRequest('/api/classification/historical', 'GET', duration, 200, { cached: true });
 
-      return NextResponse.json(
-        {
-          success: true,
-          data: cachedData.data,
-          pagination: cachedData.pagination,
-          deviceId,
-          timePeriod,
-          cached: true,
-          timestamp: new Date().toISOString()
-        },
-        {
-          headers: {
-            'X-RateLimit-Limit': '100',
-            'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
-            'X-RateLimit-Reset': rateLimitResult.resetIn.toString(),
-            'X-Cache': 'HIT'
+        return NextResponse.json(
+          {
+            success: true,
+            data: cachedData.data,
+            pagination: cachedData.pagination,
+            deviceId,
+            timePeriod,
+            cached: true,
+            timestamp: new Date().toISOString()
+          },
+          {
+            headers: {
+              'X-RateLimit-Limit': '100',
+              'X-RateLimit-Remaining': rateLimitResult.remaining.toString(),
+              'X-RateLimit-Reset': rateLimitResult.resetIn.toString(),
+              'X-Cache': 'HIT'
+            }
           }
-        }
-      );
+        );
+      }
+    } else {
+      console.log('🔄 Cache bypassed due to refresh request');
     }
 
     // Try to get historical data from classification_history collection
@@ -115,8 +122,11 @@ export async function GET(request: NextRequest) {
       result = await aggregatePassDataHistorically(deviceId, timeFilter, { page, limit, sortBy, sortOrder });
     }
 
-    // Cache the result (5 minutes TTL)
-    cache.set(deviceId, timePeriod, result, cacheKey, 5 * 60 * 1000);
+    // Cache TTL based on time period:
+    // - 24hrs (real-time): 30 seconds for fresh data
+    // - yesterday/month (historical): 5 minutes (less frequent changes)
+    const cacheTTL = timePeriod === '24hrs' ? 30 * 1000 : 5 * 60 * 1000;
+    cache.set(deviceId, timePeriod, result, cacheKey, cacheTTL);
 
     const duration = Date.now() - startTime;
     monitor.recordRequest('/api/classification/historical', 'GET', duration, 200, { cached: false });
@@ -306,6 +316,37 @@ async function aggregatePassDataHistorically(
               $cond: [{ $gt: ['$speed', 60] }, 1, 0]
             }
           },
+          // All 15 vehicle types from ClairWav Protocol V2.1 (codes 0-14)
+          other: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['other', '0']] }, 1, 0]
+            }
+          },
+          bicycle: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['bicycle', '1']] }, 1, 0]
+            }
+          },
+          motorcycle: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['motorcycle', '2']] }, 1, 0]
+            }
+          },
+          tricycle: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['tricycle', '3']] }, 1, 0]
+            }
+          },
+          bus: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['bus', '4']] }, 1, 0]
+            }
+          },
+          van: {
+            $sum: {
+              $cond: [{ $in: ['$vehicleType', ['van', '5']] }, 1, 0]
+            }
+          },
           car: {
             $sum: {
               $cond: [{ $in: ['$vehicleType', ['car', '6']] }, 1, 0]
@@ -316,29 +357,29 @@ async function aggregatePassDataHistorically(
               $cond: [{ $in: ['$vehicleType', ['suv', '7']] }, 1, 0]
             }
           },
-          truck: {
+          large_truck: {
             $sum: {
-              $cond: [{ $in: ['$vehicleType', ['truck', 'large_truck', 'medium_truck', 'light_truck', '8', '9', '10']] }, 1, 0]
+              $cond: [{ $in: ['$vehicleType', ['large_truck', '8']] }, 1, 0]
             }
           },
-          motorcycle: {
+          medium_truck: {
             $sum: {
-              $cond: [{ $in: ['$vehicleType', ['motorcycle', '2']] }, 1, 0]
+              $cond: [{ $in: ['$vehicleType', ['medium_truck', '9']] }, 1, 0]
             }
           },
-          van: {
+          light_truck: {
             $sum: {
-              $cond: [{ $in: ['$vehicleType', ['van', '5']] }, 1, 0]
+              $cond: [{ $in: ['$vehicleType', ['light_truck', '10']] }, 1, 0]
             }
           },
-          bus: {
+          dangerous_goods: {
             $sum: {
-              $cond: [{ $in: ['$vehicleType', ['bus', 'medium_bus', '4', '14']] }, 1, 0]
+              $cond: [{ $in: ['$vehicleType', ['dangerous_goods', '11']] }, 1, 0]
             }
           },
-          bicycle: {
+          engineering_vehicle: {
             $sum: {
-              $cond: [{ $in: ['$vehicleType', ['bicycle', '1']] }, 1, 0]
+              $cond: [{ $in: ['$vehicleType', ['engineering_vehicle', '12']] }, 1, 0]
             }
           },
           pedestrian: {
@@ -346,9 +387,9 @@ async function aggregatePassDataHistorically(
               $cond: [{ $in: ['$vehicleType', ['pedestrian', '13']] }, 1, 0]
             }
           },
-          other: {
+          medium_bus: {
             $sum: {
-              $cond: [{ $in: ['$vehicleType', ['other', 'tricycle', '0', '3']] }, 1, 0]
+              $cond: [{ $in: ['$vehicleType', ['medium_bus', '14']] }, 1, 0]
             }
           }
         }
@@ -381,15 +422,21 @@ async function aggregatePassDataHistorically(
       data: data.map((item: any) => ({
         timeSlot: item._id,
         vehicleTypes: {
+          other: item.other || 0,
+          bicycle: item.bicycle || 0,
+          motorcycle: item.motorcycle || 0,
+          tricycle: item.tricycle || 0,
+          bus: item.bus || 0,
+          van: item.van || 0,
           car: item.car || 0,
           suv: item.suv || 0,
-          truck: item.truck || 0,
-          motorcycle: item.motorcycle || 0,
-          van: item.van || 0,
-          bus: item.bus || 0,
-          bicycle: item.bicycle || 0,
+          large_truck: item.large_truck || 0,
+          medium_truck: item.medium_truck || 0,
+          light_truck: item.light_truck || 0,
+          dangerous_goods: item.dangerous_goods || 0,
+          engineering_vehicle: item.engineering_vehicle || 0,
           pedestrian: item.pedestrian || 0,
-          other: item.other || 0
+          medium_bus: item.medium_bus || 0
         },
         totalVehicles: item.totalVehicles || 0,
         averageSpeed: item.avgSpeed || 0,

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { CameraConfig, CameraStatus, CameraTestResult } from '@/types/camera';
+import { CameraStorage } from '@/lib/camera-storage';
+import { withApiProtection } from '@/lib/middleware';
 
-// In-memory storage for camera configurations (in production, use database)
-let cameraConfigs: CameraConfig[] = [];
+// Camera storage singleton
+const cameraStorage = CameraStorage.getInstance();
+
+// In-memory cache for camera statuses (connection status is ephemeral)
 let cameraStatuses: Map<string, CameraStatus> = new Map();
 
 // RTSP to WebRTC service URL
@@ -24,14 +28,21 @@ async function checkCameraConnectivity(camera: CameraConfig): Promise<boolean> {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
+    // Fetch all cameras from MongoDB
+    const cameraConfigs = await cameraStorage.getAllCameras();
+
     // Check connectivity for all cameras
     const camerasWithStatus = await Promise.all(
       cameraConfigs.map(async (config) => {
         const isConnected = await checkCameraConnectivity(config);
-        
-        // Update the status in memory
+
+        // Update the status in memory cache
         cameraStatuses.set(config.id, {
           id: config.id,
           isConnected
@@ -65,6 +76,10 @@ export async function GET() {
  * Create a new camera configuration
  */
 export async function POST(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const body = await request.json();
     const {
@@ -108,17 +123,18 @@ export async function POST(request: NextRequest) {
       updatedAt: new Date()
     };
 
-    cameraConfigs.push(newCamera);
+    // Save to MongoDB
+    const savedCamera = await cameraStorage.createCamera(newCamera);
 
     // Initialize camera status as connected (since it has a valid RTSP URL)
-    cameraStatuses.set(newCamera.id, {
-      id: newCamera.id,
+    cameraStatuses.set(savedCamera.id, {
+      id: savedCamera.id,
       isConnected: true
     });
 
     return NextResponse.json({
       success: true,
-      camera: newCamera
+      camera: savedCamera
     }, { status: 201 });
 
   } catch (error) {
@@ -135,6 +151,10 @@ export async function POST(request: NextRequest) {
  * Update camera configuration
  */
 export async function PUT(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const body = await request.json();
     const { id, ...updates } = body;
@@ -146,24 +166,19 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const cameraIndex = cameraConfigs.findIndex(camera => camera.id === id);
-    if (cameraIndex === -1) {
+    // Update camera in MongoDB
+    const updatedCamera = await cameraStorage.updateCamera(id, updates);
+
+    if (!updatedCamera) {
       return NextResponse.json(
         { success: false, error: 'Camera not found' },
         { status: 404 }
       );
     }
 
-    // Update camera configuration
-    cameraConfigs[cameraIndex] = {
-      ...cameraConfigs[cameraIndex],
-      ...updates,
-      updatedAt: new Date()
-    };
-
     return NextResponse.json({
       success: true,
-      camera: cameraConfigs[cameraIndex]
+      camera: updatedCamera
     });
 
   } catch (error) {
@@ -180,6 +195,10 @@ export async function PUT(request: NextRequest) {
  * Delete camera configuration
  */
 export async function DELETE(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -191,16 +210,17 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const cameraIndex = cameraConfigs.findIndex(camera => camera.id === id);
-    if (cameraIndex === -1) {
+    // Delete camera from MongoDB
+    const deleted = await cameraStorage.deleteCamera(id);
+
+    if (!deleted) {
       return NextResponse.json(
         { success: false, error: 'Camera not found' },
         { status: 404 }
       );
     }
 
-    // Remove camera configuration
-    cameraConfigs.splice(cameraIndex, 1);
+    // Remove from status cache
     cameraStatuses.delete(id);
 
     return NextResponse.json({

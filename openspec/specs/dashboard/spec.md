@@ -4,25 +4,32 @@
 The dashboard provides a real-time traffic monitoring and control interface for traffic engineers to manage traffic signals using radar data from ClairWav-T80 systems. The system supports multiple radar devices with dynamic device selection, real-time vehicle tracking, lane status monitoring, and comprehensive traffic analytics including vehicle classification and performance metrics.
 ## Requirements
 ### Requirement: Real-time Traffic Dashboard
-The system SHALL provide a real-time dashboard for traffic engineers to monitor and control traffic signals using radar data from ClairWav-T80 systems.
+The system SHALL provide a real-time dashboard for traffic engineers to monitor and control traffic signals using radar data from ClairWav-T80 systems with an optimized side-by-side layout for Live Tracking.
 
-#### Scenario: Queue monitoring display
-- **WHEN** a traffic engineer opens the dashboard
-- **THEN** they see real-time queue lengths for all lanes (11, 12, 13, 485)
-- **AND** queue lengths are displayed with 0.1m resolution
-- **AND** data updates in real-time without page refresh
+#### Scenario: Side-by-side layout display
+- **WHEN** users access the Live Tracking tab
+- **THEN** the radar data analysis card is displayed on the left side
+- **AND** the tracking map canvas is displayed on the right side
+- **AND** both components are visible simultaneously without scrolling
 
-#### Scenario: Speed monitoring display
-- **WHEN** vehicles are detected by the radar
-- **THEN** their speeds are displayed in km/h with 0.1 km/h resolution
-- **AND** average speeds are calculated and displayed per lane
-- **AND** speed violations are highlighted when exceeding limits
+#### Scenario: Responsive layout behavior
+- **WHEN** users view the Live Tracking tab on different screen sizes
+- **THEN** the side-by-side layout adapts appropriately for desktop, tablet, and mobile views
+- **AND** the radar analysis card maintains readability and functionality
+- **AND** the tracking map maintains proper sizing and interactivity
 
-#### Scenario: Vehicle classification display
-- **WHEN** vehicles are detected
-- **THEN** they are classified as car, van, SUV, or truck
-- **AND** vehicle type counts are displayed per lane
-- **AND** classification accuracy is maintained in real-time
+#### Scenario: Preserved functionality in new layout
+- **WHEN** users interact with the radar analysis card in its new left position
+- **THEN** all existing functionality remains intact
+- **AND** vehicle statistics, lane scenarios, and interactive elements work as before
+- **AND** the tracking map maintains all zoom, pan, and vehicle selection capabilities
+
+#### Scenario: ObjectData validation from Redis
+- **WHEN** the radar analysis card displays vehicle data
+- **THEN** it validates and displays real data from 0x01 packet ObjectData
+- **AND** data is retrieved from Redis using the `deviceId/ObjectData` key pattern
+- **AND** vehicle statistics reflect actual ObjectData entries from the radar system
+- **AND** lane analysis is based on real vehicle positions from ObjectData packets
 
 ### Requirement: Multi-lane Analysis
 The system SHALL provide comprehensive analysis across multiple lanes for traffic optimization.
@@ -70,13 +77,31 @@ The system SHALL provide interface for traffic engineers to adjust signal timing
 - **AND** changes are validated against safety parameters
 
 ### Requirement: Dashboard Navigation
-The dashboard navigation SHALL include the Vehicle Classification tab and Video Streaming tab as primary navigation options alongside existing dashboard, lanes, and signal timing tabs.
+The dashboard navigation SHALL include a "Video Streaming" tab that displays the full video streaming interface with camera feeds, settings, and recordings management embedded directly in the main dashboard.
 
-#### Scenario: Enhanced Navigation Menu
-- **WHEN** users access the main dashboard interface
-- **THEN** the navigation menu includes the Vehicle Classification tab and Video Streaming tab
-- **AND** provides clear visual indicators for active tab
-- **AND** maintains responsive design for mobile and desktop views
+#### Scenario: Video streaming tab displays embedded interface
+- **WHEN** user clicks the "Video Streaming" tab in the dashboard navigation
+- **THEN** the main dashboard displays the video streaming interface inline (no separate page navigation)
+- **AND** the video streaming tab is highlighted as active
+- **AND** the interface includes sub-tabs for Streams, Settings, and Recordings
+
+#### Scenario: Video streaming sub-tabs within main dashboard
+- **WHEN** user is on the Video Streaming tab
+- **THEN** they can switch between Streams, Settings, and Recordings sub-tabs
+- **AND** sub-tab switching happens instantly without page reload
+- **AND** active sub-tab is visually indicated
+
+#### Scenario: Device context preserved across video streaming tab
+- **WHEN** user switches to the Video Streaming tab
+- **THEN** the selected device context is maintained
+- **AND** device selector remains functional
+- **AND** switching back to other tabs (Overview, Tracking, Classification) preserves state
+
+#### Scenario: Video streaming replaces link-based navigation
+- **WHEN** user views the Video Streaming tab
+- **THEN** the full video streaming interface is displayed inline
+- **AND** no external link or "Open Video Streaming Dashboard" button is shown
+- **AND** all video streaming features are accessible without leaving the main dashboard
 
 ### Requirement: Vehicle Classification Dashboard
 The existing Vehicle Classification Dashboard SHALL be enhanced to include historical charting capabilities with time-based filtering and advanced visualization options.
@@ -111,19 +136,29 @@ The system SHALL integrate the Vehicle Classification tab into the main dashboar
 - **AND** provides smooth transitions between different views
 
 ### Requirement: Real-time Classification Updates
-The system SHALL provide real-time updates for vehicle classification data using WebSocket connections with sub-second latency.
+The system SHALL provide real-time updates for vehicle classification data using Redis keyspace notifications and MongoDB as the single source of truth.
 
-#### Scenario: Live Classification Updates
-- **WHEN** new PassData (0x05) packets are received
-- **THEN** the classification dashboard updates in real-time
-- **AND** vehicle counts and distributions update immediately
-- **AND** speed and lane utilization metrics refresh automatically
+#### Scenario: MongoDB-based data flow
+- **WHEN** new PassData (0x05) packets are received in Redis
+- **THEN** Redis keyspace notifications trigger immediate processing via PassDataSubscriber
+- **AND** processed data is written directly to MongoDB for persistence
+- **AND** WebSocket clients receive real-time updates from MongoDB queries
+- **AND** no in-memory caching is used for classification data
+- **AND** no polling mechanisms are used for data retrieval
+
+#### Scenario: MongoDB-based classification data access
+- **WHEN** frontend requests classification data
+- **THEN** API routes query MongoDB directly for both real-time and historical data
+- **AND** MongoDB aggregations provide summary statistics and metrics
+- **AND** MongoDB provides fast access via indexed queries
+- **AND** ClassificationProcessor serves as minimal shell for backward compatibility
 
 #### Scenario: WebSocket Connection Management
 - **WHEN** WebSocket connections are established for classification data
 - **THEN** the system maintains stable connections with automatic reconnection
 - **AND** handles connection failures gracefully
 - **AND** provides connection status indicators
+- **AND** broadcasts updates triggered by Redis keyspace notifications
 
 ### Requirement: Multi-Device Support
 The system SHALL support multiple radar devices with dynamic device selection and seamless switching between different radar installations.
@@ -142,35 +177,20 @@ The system SHALL support multiple radar devices with dynamic device selection an
 - **AND** device-specific data is properly isolated and managed
 
 ### Requirement: Historical Classification Charts
-The system SHALL provide historical vehicle classification charts with time-based filtering and advanced visualization capabilities for traffic engineers to analyze long-term traffic patterns and intersection performance.
+The system SHALL provide historical vehicle classification charts with time-based filtering and advanced visualization capabilities using MongoDB as the data source.
 
-#### Scenario: Time-based Chart Selection
-- **WHEN** traffic engineers access the Vehicle Classification tab
-- **THEN** they can select from predefined time periods (24hrs, yesterday, month)
-- **AND** charts update to display historical data for the selected period
-- **AND** data is retrieved from MongoDB with 15-minute aggregation intervals
+#### Scenario: MongoDB-based historical data retrieval
+- **WHEN** traffic engineers access historical classification data
+- **THEN** the system queries MongoDB directly for historical data
+- **AND** data is retrieved with optimized MongoDB queries and indexing
 - **AND** charts render efficiently with large historical datasets
+- **AND** MongoDB is the single source of truth for all classification data
 
-#### Scenario: Histogram Chart Visualization
-- **WHEN** traffic engineers view historical classification data
-- **THEN** the system displays histogram charts showing vehicle type distribution over time
-- **AND** histograms show traffic patterns and peak periods clearly
-- **AND** charts support interactive features like zoom and pan
-- **AND** data points represent 15-minute aggregated classification metrics
-
-#### Scenario: Advanced Infographic Display
-- **WHEN** traffic engineers analyze historical traffic data
-- **THEN** the system provides multiple chart types including heatmaps, trend lines, and comparative charts
-- **AND** heatmaps show traffic density patterns across time and lanes
-- **AND** trend lines display traffic volume changes over extended periods
-- **AND** comparative charts allow side-by-side analysis of different time periods
-
-#### Scenario: Historical Data Export
-- **WHEN** traffic engineers need to export historical classification data
-- **THEN** the system provides export options in multiple formats (CSV, JSON, PDF)
-- **AND** exported data includes aggregated metrics for the selected time period
-- **AND** charts can be exported as images (PNG, SVG) for reports
-- **AND** export functionality maintains data integrity and formatting
+#### Scenario: Real-time chart updates
+- **WHEN** new PassData is processed via Redis keyspace notifications
+- **THEN** processed data is written to MongoDB immediately by PassDataSubscriber
+- **AND** WebSocket clients receive real-time chart updates from MongoDB queries
+- **AND** charts update without polling or in-memory dependencies
 
 ### Requirement: Historical Data Management
 The system SHALL manage historical classification data storage and retrieval with efficient MongoDB integration and 15-minute aggregation intervals.
@@ -195,4 +215,52 @@ The system SHALL manage historical classification data storage and retrieval wit
 - **AND** old data is compressed or archived based on retention policies
 - **AND** cleanup processes maintain database performance
 - **AND** data integrity is preserved during archival operations
+
+### Requirement: Tab State Management
+The dashboard SHALL manage tab state to ensure video resources are properly initialized and cleaned up when switching between tabs.
+
+#### Scenario: Video stream initialization on tab activation
+- **WHEN** user activates the Video Streaming tab
+- **THEN** camera data is fetched from the API
+- **AND** video streams are initialized for display
+- **AND** connection status is monitored
+
+#### Scenario: Video stream cleanup on tab deactivation
+- **WHEN** user switches away from the Video Streaming tab
+- **THEN** active video streams are paused or stopped
+- **AND** video player resources are released
+- **AND** sub-tab state is optionally reset to default (Streams)
+
+#### Scenario: Lazy loading of video components
+- **WHEN** dashboard loads initially
+- **THEN** video streaming components are only loaded when the Video Streaming tab is first accessed
+- **AND** subsequent tab switches reuse loaded components
+- **AND** performance of other tabs is not impacted by video component presence
+
+### Requirement: MongoDB-First Classification Architecture
+The system SHALL use MongoDB as the primary data store for all classification data, eliminating in-memory caching and polling mechanisms.
+
+#### Scenario: Simplified ClassificationProcessor
+- **WHEN** the classification processor is initialized
+- **THEN** it SHALL NOT maintain in-memory Maps for classification data
+- **AND** it SHALL NOT run aggregation timers for data persistence
+- **AND** it SHALL serve as a minimal shell providing backward-compatible deprecated methods
+- **AND** all real classification logic SHALL be handled by MongoDB queries in API routes
+
+#### Scenario: Direct MongoDB queries in API routes
+- **WHEN** API routes need classification data
+- **THEN** they query MongoDB passdata collection directly
+- **AND** calculate metrics from MongoDB query results
+- **AND** eliminate dependency on ClassificationProcessor's in-memory cache
+- **AND** use MongoDB indexes for optimal query performance
+
+### Requirement: PassDataSubscriber MongoDB Persistence
+The system SHALL use PassDataSubscriber to handle real-time data persistence from Redis to MongoDB without intermediate in-memory caching.
+
+#### Scenario: Redis keyspace notification to MongoDB
+- **WHEN** Redis keyspace notifications are received for PassData
+- **THEN** PassDataSubscriber fetches latest data from Redis
+- **AND** writes processed data directly to MongoDB passdata collection
+- **AND** no in-memory storage is used as intermediate cache
+- **AND** MongoDB serves as the single source of truth for classification data
 

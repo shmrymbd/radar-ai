@@ -9,6 +9,7 @@ import TrafficAnalytics from '@/components/TrafficAnalytics';
 import VideoStreamingGrid from '@/components/VideoStreamingGrid';
 import CameraSettings from '@/components/CameraSettings';
 import VideoRecordings from '@/components/VideoRecordings';
+import ControlCenter from '@/components/ControlCenter';
 import { useDevice } from '@/contexts/DeviceContext';
 
 export default function Dashboard() {
@@ -59,6 +60,10 @@ export default function Dashboard() {
       case 'analytics':
         // TrafficAnalytics requires deviceId prop for device-specific data
         return <TrafficAnalytics deviceId={selectedDevice.id} />;
+      case 'control-center':
+        // Control Center combines video streaming, vehicle tracking, and lane status
+        // in a unified three-panel layout for comprehensive intersection monitoring
+        return <ControlCenter />;
       case 'classification':
         // ClassificationDashboard is self-contained with internal tab navigation
         // Uses MongoDB-first architecture (no in-memory cache, queries /api/classification)
@@ -119,7 +124,21 @@ export default function Dashboard() {
                 <VideoStreamingGrid cameras={cameras} onRefresh={fetchCameras} />
               )
             )}
-            {videoSubTab === 'settings' && <CameraSettings onSave={fetchCameras} />}
+            {videoSubTab === 'settings' && (
+              <CameraSettings
+                cameras={cameras}
+                onCameraAdded={(camera) => {
+                  setCameras([...cameras, camera]);
+                }}
+                onCameraUpdated={(updatedCamera) => {
+                  setCameras(cameras.map(c => c.id === updatedCamera.id ? updatedCamera : c));
+                }}
+                onCameraDeleted={(cameraId) => {
+                  setCameras(cameras.filter(c => c.id !== cameraId));
+                }}
+                onRefresh={fetchCameras}
+              />
+            )}
             {videoSubTab === 'recordings' && <VideoRecordings />}
           </div>
         );

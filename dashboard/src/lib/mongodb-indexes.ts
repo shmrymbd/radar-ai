@@ -3,6 +3,12 @@
  * Creates and manages database indexes for optimal query performance
  */
 
+// Load environment variables from .env.local when running as script
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+config({ path: resolve(__dirname, '../../.env.local') });
+
 import { connectToDatabase } from './mongodb';
 
 /**
@@ -114,6 +120,60 @@ export async function createIndexes(): Promise<void> {
       }
     );
     console.log('✅ Created index: pass_data.deviceId_lane_timestamp');
+
+    // Index for speed-based analytics
+    await passData.createIndex(
+      { deviceId: 1, crossSectionSpeed: 1, timestamp: -1 },
+      {
+        name: 'deviceId_speed_timestamp',
+        background: true
+      }
+    );
+    console.log('✅ Created index: pass_data.deviceId_speed_timestamp');
+
+    // Camera Configuration Collection Indexes
+    const cameraConfigs = db.collection('camera_configs');
+
+    // Unique index on camera ID
+    await cameraConfigs.createIndex(
+      { id: 1 },
+      {
+        name: 'camera_id_unique',
+        unique: true,
+        background: true
+      }
+    );
+    console.log('✅ Created index: camera_configs.camera_id_unique');
+
+    // Index on camera name for searching
+    await cameraConfigs.createIndex(
+      { name: 1 },
+      {
+        name: 'camera_name',
+        background: true
+      }
+    );
+    console.log('✅ Created index: camera_configs.camera_name');
+
+    // Index on active status for filtering
+    await cameraConfigs.createIndex(
+      { isActive: 1 },
+      {
+        name: 'camera_isActive',
+        background: true
+      }
+    );
+    console.log('✅ Created index: camera_configs.camera_isActive');
+
+    // Index on creation date for sorting
+    await cameraConfigs.createIndex(
+      { createdAt: -1 },
+      {
+        name: 'camera_createdAt_desc',
+        background: true
+      }
+    );
+    console.log('✅ Created index: camera_configs.camera_createdAt_desc');
 
     console.log('✅ All MongoDB indexes created successfully');
 

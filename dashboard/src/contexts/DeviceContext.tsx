@@ -23,9 +23,12 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
   const [availableCameras, setAvailableCameras] = useState<CameraDevice[]>(DEFAULT_CAMERAS);
   const [cameraStatus, setCameraStatus] = useState<Record<string, DeviceStatus>>({});
 
-  // Set client-side flag
+  // Set client-side flag - use setTimeout to avoid hydration mismatch
   useEffect(() => {
-    setIsClient(true);
+    const timer = setTimeout(() => {
+      setIsClient(true);
+    }, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   // Load device configuration from environment or localStorage (client-side only)

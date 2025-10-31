@@ -1,9 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ClassificationProcessor } from '@/lib/classification-processor';
+import { withApiProtection } from '@/lib/middleware';
 
 const classificationProcessor = ClassificationProcessor.getInstance();
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     console.log('🔍 Debugging classification processor...');
     

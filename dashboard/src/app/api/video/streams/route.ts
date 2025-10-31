@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { WebRTCSignaling, VideoStream } from '@/types/camera';
-
-// In-memory storage for active streams
-let activeStreams: Map<string, VideoStream> = new Map();
-
-// Video streaming service URL
-const VIDEO_SERVICE_URL = process.env.VIDEO_SERVICE_URL || 'http://localhost:8083';
+import { videoStreamManager } from '@/lib/video-stream-manager';
+import { withApiProtection } from '@/lib/middleware';
 
 /**
  * POST /api/video/streams
  * Start a new video stream for a camera
  */
 export async function POST(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const body = await request.json();
     const { cameraId, rtspUrl, username, password } = body;
@@ -23,65 +23,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if stream already exists
-    const existingStream = Array.from(activeStreams.values())
-      .find(stream => stream.cameraId === cameraId && stream.isActive);
+    // Check if FFmpeg is available
+    const ffmpegAvailable = await videoStreamManager.checkFFmpegAvailable();
+    if (!ffmpegAvailable) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'FFmpeg is not installed or not available in PATH. Please install FFmpeg to enable video streaming.'
+        },
+        { status: 503 }
+      );
+    }
 
+    // Check if stream already exists for this camera
+    const existingStream = videoStreamManager.getStreamByCamera(cameraId);
     if (existingStream) {
       return NextResponse.json({
         success: true,
-        stream: existingStream,
+        stream: {
+          cameraId: existingStream.cameraId,
+          streamId: existingStream.streamId,
+          isActive: existingStream.isActive,
+          startTime: existingStream.startTime,
+          viewerCount: 0
+        },
+        hlsUrl: `/api/video/hls/${existingStream.streamId}/playlist.m3u8`,
         message: 'Stream already active'
       });
     }
 
-    // Create new stream
-    const streamId = `stream_${cameraId}_${Date.now()}`;
-    const newStream: VideoStream = {
-      cameraId,
-      streamId,
-      isActive: true,
-      startTime: new Date(),
-      viewerCount: 0
-    };
-
-    activeStreams.set(streamId, newStream);
-
-    // Start FFmpeg process to convert RTSP to HLS
+    // Start new stream with FFmpeg
     try {
-      // Create output directory for this stream
-      const outputDir = `./hls-output/${streamId}`;
-      const fs = require('fs');
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
+      const { streamId, hlsUrl } = await videoStreamManager.startStream({
+        cameraId,
+        rtspUrl,
+        username,
+        password
+      });
 
-      // For now, create a placeholder HLS playlist
-      // In production, this would start an actual FFmpeg process
-      const playlistContent = `#EXTM3U
-#EXT-X-VERSION:3
-#EXT-X-TARGETDURATION:2
-#EXT-X-MEDIA-SEQUENCE:0
-#EXTINF:2.0,
-placeholder.ts
-#EXT-X-ENDLIST`;
-
-      fs.writeFileSync(`${outputDir}/playlist.m3u8`, playlistContent);
-      
-      newStream.viewerCount = 0;
+      const newStream: VideoStream = {
+        cameraId,
+        streamId,
+        isActive: true,
+        startTime: new Date(),
+        viewerCount: 0
+      };
 
       return NextResponse.json({
         success: true,
         stream: newStream,
-        hlsUrl: `/api/video/hls/stream_camera_1761445153665_9aw9eysyr_1761466493105/playlist.m3u8`,
-        message: 'Stream started (placeholder HLS created)'
-      });
+        hlsUrl,
+        message: 'Stream started successfully with FFmpeg'
+      }, { status: 201 });
 
     } catch (error) {
-      activeStreams.delete(streamId);
-      console.error('Error starting stream:', error);
+      console.error('Error starting FFmpeg stream:', error);
       return NextResponse.json(
-        { success: false, error: 'Failed to start video stream' },
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to start video stream'
+        },
         { status: 500 }
       );
     }
@@ -99,63 +100,28 @@ placeholder.ts
  * GET /api/video/streams
  * Get active video streams
  */
-export async function GET() {
-  try {
-    const streams = Array.from(activeStreams.values())
-      .filter(stream => stream.isActive);
+export async function GET(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
 
-    // Add live stream URLs for cameras that are currently streaming
-    const streamsWithUrls = streams.map(stream => {
-      // Check if this camera has a live stream directory
-      const fs = require('fs');
-      const hlsDir = `./hls-output`;
-      
-      if (fs.existsSync(hlsDir)) {
-        const dirs = fs.readdirSync(hlsDir);
-        // Find the most recent directory for this camera that has a live playlist
-        const liveStreamDirs = dirs.filter((dir: string) => 
-          dir.includes(stream.cameraId) && 
-          fs.existsSync(`${hlsDir}/${dir}/playlist.m3u8`)
-        );
-        
-        if (liveStreamDirs.length > 0) {
-          // Sort by timestamp (newest first) and take the first one
-          const sortedDirs = liveStreamDirs.sort((a: string, b: string) => {
-            const timestampA = a.split('_').pop() || '0';
-            const timestampB = b.split('_').pop() || '0';
-            return parseInt(timestampB) - parseInt(timestampA);
-          });
-          
-          // Find the first directory that has live content (no #EXT-X-ENDLIST)
-          let liveStreamDir = null;
-          for (const dir of sortedDirs) {
-            const playlistPath = `${hlsDir}/${dir}/playlist.m3u8`;
-            const playlistContent = fs.readFileSync(playlistPath, 'utf8');
-            if (!playlistContent.includes('#EXT-X-ENDLIST')) {
-              liveStreamDir = dir;
-              break;
-            }
-          }
-          
-          if (liveStreamDir) {
-            return {
-              ...stream,
-              hlsUrl: `/api/video/hls/${liveStreamDir}/playlist.m3u8`,
-              isLive: true
-            };
-          }
-        }
-      }
-      
-      return {
-        ...stream,
-        isLive: false
-      };
-    });
+  try {
+    const activeStreams = videoStreamManager.getActiveStreams();
+
+    const streams = activeStreams.map(stream => ({
+      cameraId: stream.cameraId,
+      streamId: stream.streamId,
+      isActive: stream.isActive,
+      startTime: stream.startTime,
+      viewerCount: 0,
+      hlsUrl: `/api/video/hls/${stream.streamId}/playlist.m3u8`,
+      isLive: true
+    }));
 
     return NextResponse.json({
       success: true,
-      streams: streamsWithUrls
+      streams,
+      count: streams.length
     });
 
   } catch (error) {
@@ -172,6 +138,10 @@ export async function GET() {
  * Stop a video stream
  */
 export async function DELETE(request: NextRequest) {
+  // Authentication and rate limiting
+  const protection = await withApiProtection(request);
+  if (!protection.ok) return protection.response;
+
   try {
     const { searchParams } = new URL(request.url);
     const streamId = searchParams.get('streamId');
@@ -184,35 +154,20 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    let streamToStop: VideoStream | undefined;
+    let stopped = false;
 
     if (streamId) {
-      streamToStop = activeStreams.get(streamId);
+      stopped = await videoStreamManager.stopStream(streamId);
     } else if (cameraId) {
-      streamToStop = Array.from(activeStreams.values())
-        .find(stream => stream.cameraId === cameraId && stream.isActive);
+      stopped = await videoStreamManager.stopStreamByCamera(cameraId);
     }
 
-    if (!streamToStop) {
+    if (!stopped) {
       return NextResponse.json(
-        { success: false, error: 'Stream not found' },
+        { success: false, error: 'Stream not found or already stopped' },
         { status: 404 }
       );
     }
-
-    // Stop stream (in production, this would stop FFmpeg process)
-    try {
-      // In a real implementation, this would:
-      // 1. Stop the FFmpeg process for this stream
-      // 2. Clean up HLS files
-      console.log(`Stopping stream: ${streamToStop.streamId}`);
-    } catch (error) {
-      console.error('Error stopping stream:', error);
-      // Continue with cleanup even if service call fails
-    }
-
-    // Remove from active streams
-    activeStreams.delete(streamToStop.streamId);
 
     return NextResponse.json({
       success: true,

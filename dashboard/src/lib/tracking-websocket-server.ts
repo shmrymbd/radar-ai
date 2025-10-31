@@ -90,7 +90,7 @@ export class TrackingWebSocketServer {
       if (this.clients.size > 0 && this.isRunning) {
         await this.broadcastTrackingUpdate();
       }
-    }, 1000); // 1Hz update rate (1 second intervals) - real-time tracking for control center
+    }, 5000); // 0.2Hz update rate (5 second intervals) - more reasonable
   }
 
   private async broadcastTrackingUpdate(): Promise<void> {

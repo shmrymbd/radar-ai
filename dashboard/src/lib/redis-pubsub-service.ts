@@ -78,7 +78,7 @@ export class RedisPubSubService {
       // Create dedicated subscriber client
       this.subscriber = createClient({
         socket: {
-          host: process.env.REDIS_HOST || '192.168.1.71',
+          host: process.env.REDIS_HOST || '192.168.6.22',
           port: parseInt(process.env.REDIS_PORT || '6379'),
           reconnectStrategy: (retries) => {
             if (retries > 10) {
@@ -206,7 +206,10 @@ export class RedisPubSubService {
       // Prepare documents for MongoDB
       const documents = data.entries.map((entry: PassDataEntry) => ({
         deviceId,
-        timestamp: new Date(entry.passing.time),
+        // Use frame processing time for more recent timestamps
+        // data.timestamp = when Node-RED processed the frame (more recent)
+        // entry.passing.time = when vehicle actually passed (older by ~4 minutes)
+        timestamp: new Date(data.timestamp),
         vehicleType: VEHICLE_TYPE_MAP[entry.vehicleType.code as keyof typeof VEHICLE_TYPE_MAP] || 'other',
         laneNumber: entry.lane.number,
         crossSectionSpeed: entry.crossSection.speed,
@@ -218,10 +221,29 @@ export class RedisPubSubService {
         source: 'redis_pubsub'
       }));
 
-      // Insert into MongoDB
+      // Insert into MongoDB with ordered: false to continue on duplicates
       if (documents.length > 0) {
-        await collection.insertMany(documents);
-        console.log(`✅ Written ${documents.length} PassData entries to MongoDB for ${deviceId}`);
+        try {
+          const result = await collection.insertMany(documents, { ordered: false });
+          console.log(`✅ Written ${result.insertedCount} PassData entries to MongoDB for ${deviceId}`);
+        } catch (error: any) {
+          // Handle duplicate key errors gracefully
+          if (error.code === 11000 && error.writeErrors) {
+            // Count successful inserts (duplicates are expected and ok)
+            const insertedCount = error.result?.insertedCount || 0;
+            const duplicateCount = error.writeErrors.length;
+
+            if (insertedCount > 0) {
+              console.log(`✅ Written ${insertedCount} new PassData entries to MongoDB for ${deviceId} (${duplicateCount} duplicates skipped)`);
+            } else {
+              // All were duplicates - this is fine, just debug log
+              console.debug(`📝 All ${duplicateCount} PassData entries already exist in MongoDB for ${deviceId}`);
+            }
+          } else {
+            // Re-throw non-duplicate errors
+            throw error;
+          }
+        }
       }
 
     } catch (error) {

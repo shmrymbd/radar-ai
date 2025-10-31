@@ -55,6 +55,18 @@ export interface VehicleRenderOptions {
   zoomLevel: number;
   panX: number;
   panY: number;
+  // Enhanced trail configuration
+  trailConfig: TrailConfig;
+}
+
+export interface TrailConfig {
+  length: number;           // Number of points to keep (10-200)
+  opacity: number;          // Base opacity (0-1)
+  fadeDuration: number;     // Fade time in milliseconds
+  colorMode: 'vehicle' | 'speed' | 'custom';
+  thickness: number;        // Base line thickness
+  smoothness: number;       // Interpolation smoothness (0-1)
+  persistence: boolean;     // Keep trails after vehicle exits
 }
 
 export interface LaneBoundary {
@@ -75,15 +87,35 @@ export interface DetectionZone {
   centerY: number; // 150m
 }
 
-// Vehicle classification colors
+// Vehicle classification colors - Based on ClairWav Protocol V2.1
 export const VEHICLE_COLORS = {
-  car: '#3B82F6',      // Blue
-  truck: '#EF4444',    // Red
-  motorcycle: '#10B981', // Green
-  bus: '#F59E0B',      // Orange
-  van: '#8B5CF6',      // Purple
-  suv: '#06B6D4',      // Cyan
-  unknown: '#6B7280'   // Gray
+  // Standard vehicles
+  car: '#3B82F6',           // Blue
+  suv: '#06B6D4',           // Cyan
+  van: '#8B5CF6',           // Purple
+
+  // Trucks
+  large_truck: '#EF4444',   // Red
+  medium_truck: '#F97316',  // Orange-red
+  light_truck: '#FB923C',   // Orange-light
+
+  // Buses
+  bus: '#F59E0B',           // Orange
+  medium_bus: '#FBBF24',    // Amber
+
+  // Two-wheelers
+  motorcycle: '#10B981',    // Green
+  bicycle: '#4ADE80',       // Green-light
+  tricycle: '#84CC16',      // Lime
+
+  // Special vehicles
+  dangerous_goods: '#DC2626', // Dark red
+  engineering_vehicle: '#FACC15', // Yellow
+
+  // Pedestrians and others
+  pedestrian: '#A855F7',    // Violet
+  other: '#6B7280',         // Gray
+  unknown: '#6B7280'        // Gray
 } as const;
 
 // Speed-based color intensity
@@ -95,13 +127,24 @@ export const SPEED_COLORS = {
 
 // Canvas configuration
 export const CANVAS_CONFIG = {
-  width: 1800,
-  height: 1200,
+  width: 800,  // Reduced from 1800 to better fit 30m road width
+  height: 1400, // Increased from 1200 to show more of 300m road length
   scale: 4, // 1 pixel = 0.25m (higher resolution for better detail)
   updateRate: 10, // 10Hz
   maxTrailLength: 50,
   vehicleMinSize: 10, // Minimum vehicle size in pixels (increased for visibility)
   vehicleMaxSize: 80 // Maximum vehicle size in pixels (increased for visibility)
+} as const;
+
+// Default trail configuration
+export const DEFAULT_TRAIL_CONFIG: TrailConfig = {
+  length: 50,
+  opacity: 0.8,
+  fadeDuration: 5000, // 5 seconds
+  colorMode: 'vehicle',
+  thickness: 2,
+  smoothness: 0.5,
+  persistence: false
 } as const;
 
 // Lane configuration for visualization

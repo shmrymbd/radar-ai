@@ -33,7 +33,7 @@ export class ListToStreamBridge {
       return;
     }
 
-    const redisHost = process.env.REDIS_HOST || '192.168.1.71';
+    const redisHost = process.env.REDIS_HOST || '192.168.6.22';
     const redisPort = parseInt(process.env.REDIS_PORT || '6379');
 
     this.redis = createClient({

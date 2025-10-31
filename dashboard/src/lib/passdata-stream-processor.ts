@@ -59,7 +59,7 @@ export class PassDataStreamProcessor {
 
   private constructor(config?: Partial<ProcessorConfig>) {
     this.config = {
-      redisHost: process.env.REDIS_HOST || '192.168.1.71',
+      redisHost: process.env.REDIS_HOST || '192.168.6.22',
       redisPort: parseInt(process.env.REDIS_PORT || '6379'),
       consumerGroup: 'classification-workers',
       consumerId: `worker-${process.pid}-${Date.now()}`,

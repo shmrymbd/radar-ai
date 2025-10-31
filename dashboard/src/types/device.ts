@@ -63,19 +63,27 @@ export interface DeviceContextType {
 // Default device configurations
 export const DEFAULT_DEVICES: RadarDevice[] = [
   {
-    id: 'test',
-    name: 'Test Device',
-    description: 'Simulated radar data for testing',
-    status: 'test',
-    redisPrefix: 'test',
+    id: 'P1-center',
+    name: 'P1 Center',
+    description: 'Primary radar system (center position)',
+    status: 'active',
+    redisPrefix: 'P1-center',
     dataQuality: 'excellent'
   },
   {
-    id: 'Radar04',
-    name: 'Radar04',
-    description: 'Production radar system',
+    id: 'P3',
+    name: 'P3 Radar',
+    description: 'Secondary radar system',
     status: 'active',
-    redisPrefix: 'Radar04',
+    redisPrefix: 'P3',
+    dataQuality: 'good'
+  },
+  {
+    id: 'P1-o/h',
+    name: 'P1 Overhead',
+    description: 'Overhead position radar system',
+    status: 'active',
+    redisPrefix: 'P1-o/h',
     dataQuality: 'good'
   }
 ];
@@ -95,7 +103,7 @@ export const DEFAULT_CAMERAS: CameraDevice[] = [
 ];
 
 export const DEFAULT_DEVICE_CONFIG: DeviceConfiguration = {
-  defaultDevice: 'test',
+  defaultDevice: 'P1-center',
   availableDevices: DEFAULT_DEVICES,
   autoSwitchOnFailure: true,
   deviceHealthCheckInterval: 5000 // 5 seconds - more reasonable for health checks

@@ -109,24 +109,24 @@ export class DebugAgent {
   /**
    * Test data retrieval from Redis
    */
-  private async testDataRetrieval(): Promise<void> {
-    console.log('📊 Testing data retrieval...');
-    
+  private async testDataRetrieval(deviceId: string = 'Radar04'): Promise<void> {
+    console.log(`📊 Testing data retrieval for device: ${deviceId}...`);
+
     try {
       const redisClient = await getRedisClient();
-      
-      // Test each data type
-      const objectData = await redisClient.lRange('Radar04/objectdata', 0, 0);
-      const laneStatus = await redisClient.lRange('Radar04/lanestatus', 0, 0);
-      const passData = await redisClient.lRange('Radar04/passdata', 0, 0);
-      const trafficData = await redisClient.lRange('Radar04/trafficdata', 0, 0);
-      const regionData = await redisClient.lRange('Radar04/regiondata', 0, 0);
 
-      console.log(`✅ Object Data: ${objectData.length} entries`);
-      console.log(`✅ Lane Status: ${laneStatus.length} entries`);
-      console.log(`✅ Pass Data: ${passData.length} entries`);
-      console.log(`✅ Traffic Data: ${trafficData.length} entries`);
-      console.log(`✅ Region Data: ${regionData.length} entries`);
+      // Test each data type with dynamic device ID
+      const objectData = await redisClient.lRange(`${deviceId}/objectdata`, 0, 0);
+      const laneStatus = await redisClient.lRange(`${deviceId}/lanestatus`, 0, 0);
+      const passData = await redisClient.lRange(`${deviceId}/passdata`, 0, 0); // Use lowercase to match actual key
+      const trafficData = await redisClient.lRange(`${deviceId}/trafficdata`, 0, 0);
+      const regionData = await redisClient.lRange(`${deviceId}/regiondata`, 0, 0);
+
+      console.log(`✅ Object Data (${deviceId}): ${objectData.length} entries`);
+      console.log(`✅ Lane Status (${deviceId}): ${laneStatus.length} entries`);
+      console.log(`✅ Pass Data (${deviceId}): ${passData.length} entries`);
+      console.log(`✅ Traffic Data (${deviceId}): ${trafficData.length} entries`);
+      console.log(`✅ Region Data (${deviceId}): ${regionData.length} entries`);
 
       // Test data parsing
       if (objectData.length > 0) {

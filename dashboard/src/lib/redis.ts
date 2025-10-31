@@ -19,7 +19,7 @@ async function getRedisClient(): Promise<any> {
   connectionPromise = (async () => {
     try {
       const client = createClient({
-        url: `redis://${process.env.REDIS_HOST || '192.168.1.71'}:${process.env.REDIS_PORT || '6379'}`,
+        url: `redis://${process.env.REDIS_HOST || '192.168.6.22'}:${process.env.REDIS_PORT || '6379'}`,
         socket: {
           connectTimeout: 5000,
           reconnectStrategy: (retries) => {

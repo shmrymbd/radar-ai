@@ -8,12 +8,12 @@ const vehicleTracker = new VehicleTracker();
 
 export async function GET(request: NextRequest) {
   // Apply authentication and rate limiting
-  const protection = withApiProtection(request);
+  const protection = await withApiProtection(request);
   if (!protection.ok) return protection.response;
 
   try {
     const { searchParams } = new URL(request.url);
-    const deviceId = searchParams.get('device') || 'Radar04'; // Default to Radar04 for backward compatibility
+    const deviceId = searchParams.get('device') || 'P1-center'; // Default to P1-center (primary radar)
     
     const redisStorage = RedisStorage.getInstance();
     

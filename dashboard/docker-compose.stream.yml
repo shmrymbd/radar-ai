@@ -1,0 +1,152 @@
+# Docker Compose for PassData Stream Processing
+# Deploys stream processor and bridge as separate services
+
+version: '3.8'
+
+services:
+  # List-to-Stream Bridge
+  # Migrates data from legacy Redis Lists to Redis Streams
+  bridge:
+    build:
+      context: .
+      dockerfile: stream-processor.Dockerfile
+    container_name: passdata-bridge
+    environment:
+      - NODE_ENV=production
+      - REDIS_HOST=${REDIS_HOST:-192.168.6.22}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - DEVICES=${DEVICES:-test,Radar04}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    command: ["node", "dist/services/stream-processor/ListToStreamBridge.js"]
+    restart: unless-stopped
+    networks:
+      - radar-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('redis').createClient({socket:{host:process.env.REDIS_HOST,port:process.env.REDIS_PORT}}).connect().then(c=>c.ping()).then(()=>process.exit(0)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Stream Processor (Consumer Group)
+  # Processes PassData from streams and aggregates to MongoDB
+  processor-1:
+    build:
+      context: .
+      dockerfile: stream-processor.Dockerfile
+    container_name: passdata-processor-1
+    environment:
+      - NODE_ENV=production
+      - REDIS_HOST=${REDIS_HOST:-192.168.6.22}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - MONGODB_HOST=${MONGODB_HOST:-192.168.6.22}
+      - MONGODB_PORT=${MONGODB_PORT:-27017}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-admin123}
+      - MONGODB_AUTH_DATABASE=${MONGODB_AUTH_DATABASE:-admin}
+      - MONGODB_DASHBOARD_DATABASE=${MONGODB_DASHBOARD_DATABASE:-traffic_signal_dashboard}
+      - DEVICES=${DEVICES:-test,Radar04}
+      - CONSUMER_ID=processor-1
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    restart: unless-stopped
+    networks:
+      - radar-network
+    depends_on:
+      - bridge
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('redis').createClient({socket:{host:process.env.REDIS_HOST,port:process.env.REDIS_PORT}}).connect().then(c=>c.ping()).then(()=>process.exit(0)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Second processor for redundancy and load balancing
+  processor-2:
+    build:
+      context: .
+      dockerfile: stream-processor.Dockerfile
+    container_name: passdata-processor-2
+    environment:
+      - NODE_ENV=production
+      - REDIS_HOST=${REDIS_HOST:-192.168.6.22}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - MONGODB_HOST=${MONGODB_HOST:-192.168.6.22}
+      - MONGODB_PORT=${MONGODB_PORT:-27017}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-admin}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-admin123}
+      - MONGODB_AUTH_DATABASE=${MONGODB_AUTH_DATABASE:-admin}
+      - MONGODB_DASHBOARD_DATABASE=${MONGODB_DASHBOARD_DATABASE:-traffic_signal_dashboard}
+      - DEVICES=${DEVICES:-test,Radar04}
+      - CONSUMER_ID=processor-2
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    restart: unless-stopped
+    networks:
+      - radar-network
+    depends_on:
+      - bridge
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('redis').createClient({socket:{host:process.env.REDIS_HOST,port:process.env.REDIS_PORT}}).connect().then(c=>c.ping()).then(()=>process.exit(0)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Monitoring dashboard (optional)
+  # Provides metrics on stream processing performance
+  monitor:
+    image: redis:7-alpine
+    container_name: passdata-monitor
+    command: redis-cli -h ${REDIS_HOST:-192.168.6.22} -p ${REDIS_PORT:-6379} --rdb /data/dump.rdb
+    networks:
+      - radar-network
+    volumes:
+      - redis-backup:/data
+    profiles:
+      - monitoring
+
+networks:
+  radar-network:
+    driver: bridge
+
+volumes:
+  redis-backup:
+    driver: local

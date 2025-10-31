@@ -9,7 +9,7 @@ export class ClassificationHistoryStorage {
   constructor() {
     // Build MongoDB URI from environment variables (matching pattern from /lib/mongodb.ts)
     const uri = process.env.MONGODB_URI ||
-      `mongodb://${process.env.MONGODB_USERNAME || 'admin'}:${process.env.MONGODB_PASSWORD || 'admin123'}@${process.env.MONGODB_HOST || '192.168.1.71'}:${process.env.MONGODB_PORT || '27017'}/${process.env.MONGODB_DASHBOARD_DATABASE || 'traffic_signal_dashboard'}?authSource=${process.env.MONGODB_AUTH_DATABASE || 'admin'}`;
+      `mongodb://${process.env.MONGODB_USERNAME || 'admin'}:${process.env.MONGODB_PASSWORD || 'admin123'}@${process.env.MONGODB_HOST || '192.168.6.22'}:${process.env.MONGODB_PORT || '27017'}/${process.env.MONGODB_DASHBOARD_DATABASE || 'traffic_signal_dashboard'}?authSource=${process.env.MONGODB_AUTH_DATABASE || 'admin'}`;
 
     this.client = new MongoClient(uri);
 

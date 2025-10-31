@@ -3,16 +3,25 @@
  * Handles vehicle tracking and movement calculations
  */
 
-import { ObjectData, VehicleEntry } from '@/types/radar';
-import { VehiclePosition, VehicleState, TrackingUpdate, VehicleTrackingData, CoordinateTransform, DETECTION_ZONE } from '@/types/tracking';
+import { ObjectData, VehicleEntry } from '../types/radar';
+import { VehiclePosition, VehicleState, TrackingUpdate, VehicleTrackingData, CoordinateTransform, DETECTION_ZONE, TrailConfig } from '../types/tracking';
 
 export class VehicleTracker {
   private vehicles: Map<string, VehicleState> = new Map();
   private vehicleHistory: Map<string, VehiclePosition[]> = new Map();
-  private maxHistoryLength = 50;
+  private trailConfig: TrailConfig;
 
-  constructor() {
-    console.log('🚗 VehicleTracker initialized');
+  constructor(trailConfig?: Partial<TrailConfig>) {
+    this.trailConfig = {
+      length: trailConfig?.length || 50,
+      opacity: trailConfig?.opacity || 0.8,
+      fadeDuration: trailConfig?.fadeDuration || 5000,
+      colorMode: trailConfig?.colorMode || 'vehicle',
+      thickness: trailConfig?.thickness || 2,
+      smoothness: trailConfig?.smoothness || 0.5,
+      persistence: trailConfig?.persistence || false
+    };
+    console.log('🚗 VehicleTracker initialized with trail config:', this.trailConfig);
   }
 
   /**
@@ -114,8 +123,8 @@ export class VehicleTracker {
     const history = this.vehicleHistory.get(targetId) || [];
     history.push(position);
     
-    // Keep only recent history
-    if (history.length > this.maxHistoryLength) {
+    // Keep only recent history based on trail configuration
+    if (history.length > this.trailConfig.length) {
       history.shift();
     }
     
@@ -167,13 +176,28 @@ export class VehicleTracker {
   }
 
   /**
+   * Update trail configuration
+   */
+  public updateTrailConfig(newConfig: Partial<TrailConfig>): void {
+    this.trailConfig = { ...this.trailConfig, ...newConfig };
+    console.log('🚗 VehicleTracker trail config updated:', this.trailConfig);
+  }
+
+  /**
+   * Get current trail configuration
+   */
+  public getTrailConfig(): TrailConfig {
+    return { ...this.trailConfig };
+  }
+
+  /**
    * Clean up old vehicles
    */
   public cleanupOldVehicles(maxAge: number = 300000): void { // 5 minutes
     const now = new Date();
     const cutoffTime = new Date(now.getTime() - maxAge);
     
-    for (const [targetId, vehicle] of this.vehicles) {
+    for (const [targetId, vehicle] of Array.from(this.vehicles.entries())) {
       if (vehicle.lastSeen < cutoffTime) {
         this.vehicles.delete(targetId);
         this.vehicleHistory.delete(targetId);

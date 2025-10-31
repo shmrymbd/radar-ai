@@ -1,5 +1,6 @@
 import { ObjectData, LaneStatus, PassData, TrafficData, RegionData, VehicleEntry, LaneEntry } from '@/types/radar';
 import { ClassificationProcessor } from './classification-processor';
+import { VEHICLE_TYPE_MAP } from '@/types/classification';
 
 export class RadarDataProcessor {
   private static instance: RadarDataProcessor;
@@ -143,22 +144,8 @@ export class RadarDataProcessor {
   }
 
   private getVehicleTypeName(type: number): string {
-    const typeMap: { [key: number]: string } = {
-      1: 'car',
-      2: 'van', 
-      3: 'suv',
-      4: 'truck',
-      5: 'bicycle',
-      6: 'motorcycle',
-      7: 'bus',
-      8: 'large_truck',
-      9: 'medium_truck',
-      10: 'light_truck',
-      11: 'dangerous_goods',
-      12: 'engineering_vehicle',
-      13: 'pedestrian'
-    };
-    return typeMap[type] || 'unknown';
+    // Use the official VEHICLE_TYPE_MAP from ClairWav Communication Protocol V2.1
+    return VEHICLE_TYPE_MAP[type as keyof typeof VEHICLE_TYPE_MAP] || 'other';
   }
 
   private getLaneName(laneNumber: number): string {

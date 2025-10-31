@@ -7,7 +7,7 @@ const classificationProcessor = ClassificationProcessor.getInstance();
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const deviceId = searchParams.get('deviceId') || 'test';
+    const deviceId = searchParams.get('deviceId') || 'P1-center';
     const timePeriod = searchParams.get('timePeriod') || '24hrs';
     
     // Create time filter based on period

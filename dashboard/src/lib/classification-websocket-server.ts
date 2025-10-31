@@ -179,10 +179,10 @@ export class ClassificationWebSocketServer {
    * Start periodic updates
    */
   private startPeriodicUpdates(): void {
-    // Update every 1 second for real-time control center
+    // Update every 5 seconds
     this.updateInterval = setInterval(() => {
       this.broadcastClassificationUpdate();
-    }, 1000); // 1 second - real-time classification updates for control center
+    }, 3000); // 3 seconds - more reasonable for classification updates
   }
 
   /**

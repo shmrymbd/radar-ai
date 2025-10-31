@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getApiRateLimiter, getExportRateLimiter } from './rate-limiter';
+import { getApiRateLimiter, getExportRateLimiter } from './redis-rate-limiter';
 
 /**
  * Get client identifier from request (IP address or API key)
@@ -71,12 +71,17 @@ export function checkAuth(request: NextRequest): {
 /**
  * Rate limiting middleware for general API routes
  */
-export function checkRateLimit(identifier: string): {
+export async function checkRateLimit(identifier: string): Promise<{
   allowed: boolean;
   response?: NextResponse;
-} {
+}> {
+  // Skip rate limiting if disabled in environment
+  if (process.env.DISABLE_RATE_LIMITING === 'true') {
+    return { allowed: true };
+  }
+
   const limiter = getApiRateLimiter();
-  const result = limiter.isAllowed(identifier);
+  const result = await limiter.isAllowed(identifier);
 
   if (!result.allowed) {
     const response = NextResponse.json({
@@ -101,12 +106,17 @@ export function checkRateLimit(identifier: string): {
 /**
  * Rate limiting middleware for export endpoints (stricter limits)
  */
-export function checkExportRateLimit(identifier: string): {
+export async function checkExportRateLimit(identifier: string): Promise<{
   allowed: boolean;
   response?: NextResponse;
-} {
+}> {
+  // Skip rate limiting if disabled in environment
+  if (process.env.DISABLE_RATE_LIMITING === 'true') {
+    return { allowed: true };
+  }
+
   const limiter = getExportRateLimiter();
-  const result = limiter.isAllowed(identifier);
+  const result = await limiter.isAllowed(identifier);
 
   if (!result.allowed) {
     const response = NextResponse.json({
@@ -132,11 +142,11 @@ export function checkExportRateLimit(identifier: string): {
  * Combined middleware for API routes
  * Checks authentication and rate limiting
  */
-export function withApiProtection(request: NextRequest, isExport: boolean = false): {
+export async function withApiProtection(request: NextRequest, isExport: boolean = false): Promise<{
   ok: boolean;
   response?: NextResponse;
   identifier?: string;
-} {
+}> {
   // Check authentication first
   const authResult = checkAuth(request);
 
@@ -150,10 +160,10 @@ export function withApiProtection(request: NextRequest, isExport: boolean = fals
     };
   }
 
-  // Check rate limiting
+  // Check rate limiting (now async)
   const rateLimitCheck = isExport
-    ? checkExportRateLimit(authResult.identifier)
-    : checkRateLimit(authResult.identifier);
+    ? await checkExportRateLimit(authResult.identifier)
+    : await checkRateLimit(authResult.identifier);
 
   if (!rateLimitCheck.allowed) {
     return {
@@ -173,7 +183,7 @@ export function withApiProtection(request: NextRequest, isExport: boolean = fals
  * Usage:
  *
  * export async function GET(request: NextRequest) {
- *   const protection = withApiProtection(request);
+ *   const protection = await withApiProtection(request); // Now async!
  *   if (!protection.ok) return protection.response;
  *
  *   // Your API logic here

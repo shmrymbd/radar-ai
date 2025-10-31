@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ClassificationProcessor } from '@/lib/classification-processor';
+import { PassDataMongoDBService } from '@/lib/passdata-mongodb-service';
 import { withApiProtection } from '@/lib/middleware';
+import '@/lib/server-init'; // Initialize subscriber in Next.js process
 
-const classificationProcessor = ClassificationProcessor.getInstance();
+const mongoService = PassDataMongoDBService.getInstance();
 
 export async function GET(request: NextRequest) {
   // Apply authentication and rate limiting
-  const protection = withApiProtection(request);
+  const protection = await withApiProtection(request);
   if (!protection.ok) return protection.response;
 
   try {
     const { searchParams } = new URL(request.url);
-    const deviceId = searchParams.get('deviceId') || 'test';
-    
-    const metrics = classificationProcessor.getClassificationMetrics(deviceId);
-    
+    const deviceId = searchParams.get('deviceId') || 'P1-center';
+
+    const metrics = await mongoService.getClassificationMetrics(deviceId);
+
     return NextResponse.json({
       success: true,
       data: metrics,

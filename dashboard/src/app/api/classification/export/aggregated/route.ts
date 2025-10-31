@@ -9,14 +9,14 @@ const classificationProcessor = ClassificationProcessor.getInstance();
  * Supports: CSV, JSON
  *
  * Query parameters:
- * - deviceId: Device ID (default: 'test')
+ * - deviceId: Device ID (default: 'P1-center')
  * - timePeriod: '24hrs' | 'yesterday' | 'month' (default: '24hrs')
  * - format: 'csv' | 'json' (default: 'json')
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const deviceId = searchParams.get('deviceId') || 'test';
+    const deviceId = searchParams.get('deviceId') || 'P1-center';
     const timePeriod = searchParams.get('timePeriod') || '24hrs';
     const format = searchParams.get('format') || 'json';
 
