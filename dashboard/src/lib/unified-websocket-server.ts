@@ -605,14 +605,18 @@ export class UnifiedWebSocketServer {
   }
 
   private startTrackingUpdates() {
-    // Polling interval as fallback - event-driven updates via keyspace notifications
-    // handle most updates at the radar's actual transmission rate
-    // This fallback ensures updates continue even if keyspace notifications fail
-    this.trackingInterval = setInterval(async () => {
-      if (this.isRunning) {
-        await this.broadcastTrackingUpdate();
-      }
-    }, 200); // Fallback: Update every 200ms to match ~5Hz radar rate (event-driven updates are primary)
+    // Event-driven updates via keyspace notifications are the primary mechanism
+    // Polling fallback disabled to prevent interference with real-time event-driven updates
+    // If keyspace notifications fail, check Redis configuration: CONFIG SET notify-keyspace-events lK
+
+    // DISABLED: Polling fallback interferes with real-time updates
+    // this.trackingInterval = setInterval(async () => {
+    //   if (this.isRunning) {
+    //     await this.broadcastTrackingUpdate();
+    //   }
+    // }, 200);
+
+    console.log('📡 Tracking updates: Event-driven mode (keyspace notifications only)');
   }
 
   private async broadcastTrackingUpdate() {
