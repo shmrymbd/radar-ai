@@ -48,12 +48,14 @@ interface PassDataMessage {
 }
 
 type MessageCallback = (deviceId: string, data: PassDataMessage) => void;
+type ObjectDataCallback = (deviceId: string, data: any) => void;
 
 export class RedisPubSubService {
   private static instance: RedisPubSubService;
   private subscriber: RedisClientType | null = null;
   private isConnected: boolean = false;
   private messageCallbacks: Set<MessageCallback> = new Set();
+  private objectDataCallbacks: Set<ObjectDataCallback> = new Set();
   private subscribedChannels: Set<string> = new Set();
 
   private constructor() {}
@@ -158,6 +160,90 @@ export class RedisPubSubService {
       console.error(`❌ Failed to subscribe to ${pattern}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Subscribe to ObjectData channel for a specific device
+   * Uses keyspace notifications triggered by LPUSH operations on objectdata keys
+   */
+  public async subscribeToObjectData(deviceId: string): Promise<void> {
+    if (!this.subscriber || !this.isConnected) {
+      await this.initialize();
+    }
+
+    // Use keyspace notification pattern (triggered by LPUSH operations)
+    const pattern = `__keyspace@0__:${deviceId}/objectdata`;
+
+    if (this.subscribedChannels.has(pattern)) {
+      console.log(`📡 Already subscribed to ${pattern}`);
+      return;
+    }
+
+    try {
+      // Use pSubscribe for pattern matching (keyspace notifications)
+      await this.subscriber!.pSubscribe(pattern, async (message, channel) => {
+        // message will be "lpush", "rpush", etc.
+        // channel will be "__keyspace@0__:P1-center/objectdata"
+        if (message === 'lpush' || message === 'rpush') {
+          console.log(`🔔 ObjectData keyspace notification: ${message} on ${channel}`);
+
+          // Fetch the latest data from Redis
+          const redis = await getRedisClient();
+          const latestData = await redis.lRange(`${deviceId}/objectdata`, -1, -1);
+
+          if (latestData.length > 0) {
+            try {
+              const parsedData = JSON.parse(latestData[0]);
+              this.handleObjectDataMessage(deviceId, parsedData);
+            } catch (error) {
+              console.error(`❌ Error parsing ObjectData for ${deviceId}:`, error);
+            }
+          }
+        }
+      });
+
+      this.subscribedChannels.add(pattern);
+      console.log(`✅ Subscribed to ObjectData keyspace notifications: ${pattern}`);
+    } catch (error) {
+      console.error(`❌ Failed to subscribe to ${pattern}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle incoming ObjectData message from pub/sub
+   */
+  private async handleObjectDataMessage(deviceId: string, data: any): Promise<void> {
+    try {
+      // Log received message
+      console.log(`📨 Received ObjectData for ${deviceId}: ${data.numEntries || 0} vehicles`);
+
+      // Notify all registered callbacks (WebSocket broadcasting for tracking)
+      this.objectDataCallbacks.forEach(callback => {
+        try {
+          callback(deviceId, data);
+        } catch (err) {
+          console.error('❌ Error in ObjectData callback:', err);
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error handling ObjectData message:', error);
+    }
+  }
+
+  /**
+   * Register a callback for ObjectData messages
+   */
+  public onObjectDataMessage(callback: ObjectDataCallback): void {
+    this.objectDataCallbacks.add(callback);
+  }
+
+  /**
+   * Unregister an ObjectData callback
+   */
+  public removeObjectDataCallback(callback: ObjectDataCallback): void {
+    this.objectDataCallbacks.delete(callback);
   }
 
   /**

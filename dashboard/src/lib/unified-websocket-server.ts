@@ -72,6 +72,7 @@ export class UnifiedWebSocketServer {
   // Global intervals (must be cleared on stop)
   private trackingInterval: NodeJS.Timeout | null = null;
   private classificationInterval: NodeJS.Timeout | null = null;
+  private lastTrackingSummary: number = 0; // For throttling tracking summary updates
 
   public static getInstance(): UnifiedWebSocketServer {
     if (!UnifiedWebSocketServer.instance) {
@@ -103,7 +104,7 @@ export class UnifiedWebSocketServer {
     }
   }
 
-  // Initialize Redis pub/sub for real-time PassData updates
+  // Initialize Redis pub/sub for real-time PassData and ObjectData updates
   private async initializePubSub() {
     try {
       await this.redisPubSub.initialize();
@@ -130,7 +131,50 @@ export class UnifiedWebSocketServer {
         console.log(`📤 Broadcasted PassData update for ${deviceId} to WebSocket clients and classification channel`);
       });
 
-      console.log('✅ Redis pub/sub message handler registered');
+      // Register callback for ObjectData (tracking updates) - follows radar transmission rate
+      this.redisPubSub.onObjectDataMessage(async (deviceId, data) => {
+        try {
+          // Convert ProcessedObjectData to ObjectData format for VehicleTracker
+          const rawObjectData = this.convertToObjectData(data);
+          const trackingUpdate = this.vehicleTracker.processObjectData(rawObjectData);
+
+          // Broadcast to all clients subscribed to tracking channel
+          this.broadcastToChannel('tracking', {
+            type: 'tracking_update',
+            data: trackingUpdate,
+            deviceId,
+            timestamp: new Date().toISOString()
+          });
+
+          // Also send periodic tracking summary (throttled to avoid spam)
+          const now = Date.now();
+          if (!this.lastTrackingSummary || (now - this.lastTrackingSummary) >= 1000) {
+            const trackingData = this.vehicleTracker.getTrackingData();
+            this.broadcastToChannel('tracking', {
+              type: 'tracking_summary',
+              data: trackingData,
+              deviceId,
+              timestamp: new Date().toISOString()
+            });
+            this.lastTrackingSummary = now;
+          }
+
+          console.log(`📤 Broadcasted ObjectData tracking update for ${deviceId} (${data.numEntries || 0} vehicles)`);
+        } catch (error) {
+          console.error(`❌ Error processing ObjectData for ${deviceId}:`, error);
+        }
+      });
+
+      // Subscribe to ObjectData keyspace notifications for default device
+      // This enables event-driven updates matching radar transmission rate
+      try {
+        await this.redisPubSub.subscribeToObjectData('P1-center');
+        console.log('✅ Subscribed to ObjectData keyspace notifications for P1-center');
+      } catch (error) {
+        console.error('❌ Failed to subscribe to ObjectData keyspace notifications:', error);
+      }
+
+      console.log('✅ Redis pub/sub message handlers registered');
     } catch (error) {
       console.error('❌ Failed to initialize Redis pub/sub:', error);
       // Don't throw - allow WebSocket server to continue working without pub/sub
@@ -556,11 +600,14 @@ export class UnifiedWebSocketServer {
   }
 
   private startTrackingUpdates() {
+    // Polling interval as fallback - event-driven updates via keyspace notifications
+    // handle most updates at the radar's actual transmission rate
+    // This fallback ensures updates continue even if keyspace notifications fail
     this.trackingInterval = setInterval(async () => {
       if (this.isRunning) {
         await this.broadcastTrackingUpdate();
       }
-    }, 5000); // Update every 5 seconds
+    }, 5000); // Fallback: Update every 5 seconds (event-driven updates are primary)
   }
 
   private async broadcastTrackingUpdate() {
