@@ -612,7 +612,7 @@ export class UnifiedWebSocketServer {
       if (this.isRunning) {
         await this.broadcastTrackingUpdate();
       }
-    }, 5000); // Fallback: Update every 5 seconds (event-driven updates are primary)
+    }, 200); // Fallback: Update every 200ms to match ~5Hz radar rate (event-driven updates are primary)
   }
 
   private async broadcastTrackingUpdate() {
