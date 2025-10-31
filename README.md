@@ -41,10 +41,11 @@ The system processes five types of radar data packets:
 - **Real-time Dashboard**: Live traffic monitoring with 0.1m resolution queue detection
 - **Multi-lane Analysis**: Comprehensive analysis across lanes 11, 12, 13, and 485
 - **Vehicle Classification System**: Advanced analytics for vehicle types, traffic composition, and intersection performance
-- **Live Vehicle Tracking**: Interactive visualization with heat maps and coordinate systems
+- **Live Vehicle Tracking**: Interactive visualization with heat maps, coordinate systems, and trail-based road lane detection
 - **Video Streaming**: Multi-camera HLS streaming with 1-second latency and recording capabilities
 - **Historical Analytics**: Time-based traffic patterns, peak hour analysis, and performance metrics
 - **Interactive Charts**: Dynamic visualizations for vehicle distribution, speed analysis, and lane utilization
+- **Trail-Based Road Visualization**: Automatic lane detection and road topology inference from vehicle movement patterns
 - **Multi-device Support**: Dynamic device selection with device-specific data isolation
 - **WebSocket Integration**: Real-time updates via unified WebSocket server
 - **Performance Monitoring**: Built-in monitoring and rate limiting for optimal performance
@@ -224,6 +225,9 @@ See [REDIS_CONNECTION_STATUS.md](./REDIS_CONNECTION_STATUS.md) and [MONGODB_CONN
 - [Classification Algorithms](./dashboard/src/docs/CLASSIFICATION_ALGORITHMS.md)
 - [Classification Architecture](./dashboard/src/docs/CLASSIFICATION_ARCHITECTURE.md)
 - [Classification Deployment](./dashboard/src/docs/CLASSIFICATION_DEPLOYMENT.md)
+
+### Live Tracking Features
+- [Trail-Based Road Visualization](./TRAIL_BASED_ROAD_VISUALIZATION.md) - Automatic lane detection from vehicle movement patterns
 
 ### Video Streaming Features
 - **Real-time Video Streaming**: RTSP camera integration with 1-second latency

@@ -1,113 +1,4 @@
-# live-tracking Specification
-
-## Purpose
-Real-time vehicle tracking and visualization system that displays live vehicle positions, trajectories, and automatically infers road lane topology from vehicle movement patterns. Provides interactive visualization with heat maps, trail-based road detection, and configurable rendering options. Uses event-driven architecture to match radar transmission rates for minimal latency.
-## Requirements
-### Requirement: Vehicle Type-Based Trail Colors
-The system SHALL display trails using colors that correspond to vehicle types for improved visual distinction.
-
-#### Scenario: Car trail display
-- **WHEN** a car vehicle is tracked with trails enabled
-- **THEN** the trail SHALL be displayed in blue color (#3B82F6)
-- **AND** the trail color SHALL match the vehicle's classification color
-
-#### Scenario: Truck trail display
-- **WHEN** a truck vehicle is tracked with trails enabled
-- **THEN** the trail SHALL be displayed in red color (#EF4444)
-- **AND** the trail color SHALL be distinct from other vehicle types
-
-#### Scenario: Motorcycle trail display
-- **WHEN** a motorcycle vehicle is tracked with trails enabled
-- **THEN** the trail SHALL be displayed in green color (#10B981)
-- **AND** the trail SHALL be thinner than larger vehicles
-
-### Requirement: Speed-Based Trail Styling
-The system SHALL adjust trail appearance based on vehicle speed to provide visual speed indication.
-
-#### Scenario: High-speed trail styling
-- **WHEN** a vehicle is moving at high speed (>50 km/h)
-- **THEN** the trail SHALL have increased opacity (0.9-1.0)
-- **AND** the trail SHALL have increased thickness (3-4px)
-
-#### Scenario: Low-speed trail styling
-- **WHEN** a vehicle is moving at low speed (<20 km/h)
-- **THEN** the trail SHALL have reduced opacity (0.4-0.6)
-- **AND** the trail SHALL have reduced thickness (1-2px)
-
-#### Scenario: Medium-speed trail styling
-- **WHEN** a vehicle is moving at medium speed (20-50 km/h)
-- **THEN** the trail SHALL have moderate opacity (0.6-0.8)
-- **AND** the trail SHALL have moderate thickness (2-3px)
-
-### Requirement: Trail Fade Effect
-The system SHALL implement a fade effect where trail points become more transparent over time.
-
-#### Scenario: Trail fade over time
-- **WHEN** trail points are older than 5 seconds
-- **THEN** they SHALL gradually fade to 20% opacity
-- **AND** the fade SHALL be smooth and linear
-
-#### Scenario: Recent trail visibility
-- **WHEN** trail points are less than 1 second old
-- **THEN** they SHALL maintain full opacity
-- **AND** they SHALL be clearly visible
-
-### Requirement: Configurable Trail Length
-The system SHALL allow users to configure the maximum number of points in each trail.
-
-#### Scenario: Short trail configuration
-- **WHEN** user sets trail length to 10 points
-- **THEN** each vehicle trail SHALL display maximum 10 points
-- **AND** older points SHALL be automatically removed
-
-#### Scenario: Long trail configuration
-- **WHEN** user sets trail length to 200 points
-- **THEN** each vehicle trail SHALL display maximum 200 points
-- **AND** trails SHALL persist longer for analysis
-
-### Requirement: Trail Performance Optimization
-The system SHALL optimize trail rendering for improved performance.
-
-#### Scenario: Off-screen trail culling
-- **WHEN** trails are outside the visible viewport
-- **THEN** they SHALL not be rendered
-- **AND** rendering performance SHALL be improved
-
-#### Scenario: Trail cleanup
-- **WHEN** vehicles have not been seen for 5 minutes
-- **THEN** their trail data SHALL be automatically removed
-- **AND** memory usage SHALL be controlled
-
-### Requirement: Enhanced Trail Rendering
-The system SHALL render trails with smooth interpolation and configurable appearance.
-
-#### Scenario: Smooth trail interpolation
-- **WHEN** trail points are rendered
-- **THEN** they SHALL use smooth curve interpolation
-- **AND** trails SHALL appear natural and flowing
-
-#### Scenario: Trail configuration UI
-- **WHEN** user accesses trail settings
-- **THEN** they SHALL be able to configure trail length, opacity, and colors
-- **AND** changes SHALL be applied in real-time
-
-### Requirement: Trail Data Management
-The system SHALL manage trail data with optimized storage and automatic cleanup.
-
-#### Scenario: Efficient trail storage
-- **WHEN** trail points are stored
-- **THEN** they SHALL use circular buffer data structures
-- **AND** memory usage SHALL be minimized
-
-#### Scenario: Trail data compression
-- **WHEN** trail data is stored
-- **THEN** it SHALL be compressed to reduce memory footprint
-- **AND** performance SHALL be maintained
-
-#### Scenario: Automatic trail cleanup
-- **WHEN** vehicles have not been seen for 5 minutes
-- **THEN** their trail data SHALL be automatically removed
-- **AND** memory leaks SHALL be prevented
+## MODIFIED Requirements
 
 ### Requirement: Trail-Based Road Visualization
 The system SHALL infer and visualize road lane topology from accumulated vehicle trail data with high-resolution heat maps and curved lane separators that adapt to actual road geometry.
@@ -128,11 +19,10 @@ The system SHALL infer and visualize road lane topology from accumulated vehicle
 
 #### Scenario: Segmented curve detection
 - **WHEN** lane separators are calculated
-- **THEN** the detection zone SHALL be divided into 10-meter segments along the Y-axis
-- **AND** each segment SHALL sample a 2-meter wide area (1m into each adjacent lane) for traffic data
-- **AND** each segment SHALL determine the weighted average lane center X position from trail density
+- **THEN** the detection zone SHALL be divided into 5-meter segments along the Y-axis
+- **AND** each segment SHALL determine the average lane center X position from trail data
 - **AND** lateral shifts in lane centers SHALL define the curve shape
-- **AND** curves SHALL be rendered using Catmull-Rom spline with Bezier curve interpolation
+- **AND** curves SHALL be rendered using canvas quadratic spline interpolation
 
 #### Scenario: Performance-optimized curve rendering
 - **WHEN** curved lane separators are rendered
@@ -178,17 +68,18 @@ The system SHALL infer and visualize road lane topology from accumulated vehicle
 - **AND** the 1-meter grid resolution SHALL improve lane boundary precision
 
 #### Scenario: Straight road handling
-- **WHEN** a road segment is detected as straight (lateral variance ≤ 0.2 meters)
+- **WHEN** a road segment is detected as straight (lateral variance ≤ 0.5 meters)
 - **THEN** lane separators SHALL be rendered as straight lines
 - **AND** no curve interpolation SHALL be applied
 - **AND** performance SHALL be optimized by avoiding unnecessary curve calculations
 
 #### Scenario: Curved road adaptation
-- **WHEN** a road segment has curves (lateral variance > 0.2 meters)
-- **THEN** lane separators SHALL smoothly follow the detected curve using Bezier curves
-- **AND** curves SHALL be visually natural and avoid sharp kinks through Catmull-Rom spline interpolation
-- **AND** the curve SHALL accurately represent actual traffic flow patterns from accumulated trail data
-- **AND** curves SHALL be highly sensitive to subtle road bends (0.2m detection threshold)
+- **WHEN** a road segment has curves (lateral variance > 0.5 meters)
+- **THEN** lane separators SHALL smoothly follow the detected curve
+- **AND** curves SHALL be visually natural and avoid sharp kinks
+- **AND** the curve SHALL accurately represent actual traffic flow patterns
+
+## ADDED Requirements
 
 ### Requirement: Enhanced Vehicle Persistence for Digital Twin Visualization
 The system SHALL retain vehicle objects and trails for extended periods to create a realistic digital twin showing cumulative traffic patterns rather than only instantaneous active detections.
@@ -239,6 +130,13 @@ The system SHALL retain vehicle objects and trails for extended periods to creat
 - **AND** each vehicle trajectory SHALL be limited to 50 points maximum
 - **AND** total memory usage SHALL remain under 500KB for vehicle data
 
+#### Scenario: Configurable retention duration
+- **WHEN** user accesses vehicle retention settings
+- **THEN** retention duration options SHALL include 10s, 20s, and 30s
+- **AND** selected duration SHALL apply to both vehicle display and trail fade
+- **AND** changes SHALL take effect immediately
+- **AND** the setting SHALL persist across page reloads
+
 #### Scenario: Traffic density realism
 - **WHEN** digital twin mode is enabled during moderate traffic
 - **THEN** the display SHALL show 20-50 vehicles across the detection zone
@@ -252,4 +150,3 @@ The system SHALL retain vehicle objects and trails for extended periods to creat
 - **AND** render time per frame SHALL not exceed 16.67ms
 - **AND** memory usage SHALL remain under 500KB for vehicle objects
 - **AND** canvas rendering SHALL maintain smooth animations
-

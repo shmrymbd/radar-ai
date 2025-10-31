@@ -58,15 +58,51 @@ export function DeviceProvider({ children }: DeviceProviderProps) {
           if (typeof window !== 'undefined') {
             const savedConfig = localStorage.getItem('radar-device-config');
             if (savedConfig) {
-              const config = JSON.parse(savedConfig);
-              setAvailableDevices(config.availableDevices || DEFAULT_DEVICES);
-              
-              const savedDevice = config.selectedDevice;
-              if (savedDevice) {
-                const device = (config.availableDevices || DEFAULT_DEVICES).find((d: RadarDevice) => d.id === savedDevice);
-                if (device) {
-                  setSelectedDevice(device);
+              try {
+                const config = JSON.parse(savedConfig);
+                
+                // Migrate old device IDs to new ones
+                const deviceIdMigration: Record<string, string> = {
+                  'Radar04': 'P1-center',
+                  'radar04': 'P1-center',
+                  'test': 'P1-center'
+                };
+                
+                // Check if saved device needs migration
+                let savedDevice = config.selectedDevice;
+                if (savedDevice && deviceIdMigration[savedDevice]) {
+                  console.log(`🔄 Migrating device ID: ${savedDevice} -> ${deviceIdMigration[savedDevice]}`);
+                  savedDevice = deviceIdMigration[savedDevice];
+                  
+                  // Update saved config
+                  config.selectedDevice = savedDevice;
+                  localStorage.setItem('radar-device-config', JSON.stringify(config));
                 }
+                
+                // Filter available devices to only include valid ones
+                const validDeviceIds = DEFAULT_DEVICES.map(d => d.id);
+                const filteredDevices = (config.availableDevices || DEFAULT_DEVICES).filter((d: RadarDevice) => 
+                  validDeviceIds.includes(d.id)
+                );
+                
+                setAvailableDevices(filteredDevices.length > 0 ? filteredDevices : DEFAULT_DEVICES);
+                
+                if (savedDevice) {
+                  const device = (filteredDevices.length > 0 ? filteredDevices : DEFAULT_DEVICES).find((d: RadarDevice) => d.id === savedDevice);
+                  if (device) {
+                    setSelectedDevice(device);
+                  } else {
+                    // Fallback to default if saved device is invalid
+                    console.log(`⚠️ Saved device "${savedDevice}" not found, using default: ${DEFAULT_DEVICES[0].id}`);
+                    setSelectedDevice(DEFAULT_DEVICES[0]);
+                  }
+                }
+              } catch (err) {
+                console.error('Error parsing saved device config:', err);
+                // Clear invalid config and use defaults
+                localStorage.removeItem('radar-device-config');
+                setAvailableDevices(DEFAULT_DEVICES);
+                setSelectedDevice(DEFAULT_DEVICES[0]);
               }
             }
           }

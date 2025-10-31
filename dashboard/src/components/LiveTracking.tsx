@@ -29,6 +29,17 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
   const [selectedScenario, setSelectedScenario] = useState<number>(0);
   const [showCoordinateSystem, setShowCoordinateSystem] = useState(true);
   const [trailConfigExpanded, setTrailConfigExpanded] = useState(false);
+  const [showRoadFromTrails, setShowRoadFromTrails] = useState(true);
+
+  // Digital Twin Mode state - enhanced vehicle and trail persistence
+  const [digitalTwinMode, setDigitalTwinMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('digitalTwinMode');
+      return saved ? JSON.parse(saved) : true; // Default to enabled
+    }
+    return true;
+  });
+  const [vehicleRetentionDuration, setVehicleRetentionDuration] = useState(30000); // 30 seconds
 
   // Heat map state for trail-based road visualization
   const [globalTrailHistory, setGlobalTrailHistory] = useState<Map<string, number>>(new Map());
@@ -36,7 +47,7 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
   const [heatMapInitialized, setHeatMapInitialized] = useState(false);
 
   // Helper function to convert radar coordinates to grid cells
-  const getGridKey = useCallback((x: number, y: number, gridSize: number = 2): string => {
+  const getGridKey = useCallback((x: number, y: number, gridSize: number = 1): string => {
     const gridX = Math.floor(x / gridSize) * gridSize;
     const gridY = Math.floor(y / gridSize) * gridSize;
     return `${gridX}_${gridY}`;
@@ -556,11 +567,13 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     ctx.globalAlpha = 1; // Reset global alpha
   }, [radarToVisual, renderOptions, interpolateTrailPoints]);
 
-  const drawHeatMapRoad = useCallback((ctx: CanvasRenderingContext2D) => {
-    if (globalTrailHistory.size === 0) return;
-    
-    const maxCount = Math.max(...Array.from(globalTrailHistory.values()));
-    const gridSize = 2; // meters
+  // Extract lane boundaries from trail points using density analysis
+  const extractLaneBoundaries = useCallback(() => {
+    if (globalTrailHistory.size < 20) return []; // Lowered threshold - need at least 20 data points
+
+    // Group trail points by X position (horizontal slices)
+    const xBins: Map<number, number> = new Map();
+    const gridSize = 1; // 1 meter grid for higher resolution
     
     globalTrailHistory.forEach((count, key) => {
       const [x, y] = key.split('_').map(Number);
@@ -571,8 +584,132 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
         return;
       }
       
+      // Round to bin
+      const binX = Math.floor(x / gridSize) * gridSize;
+      xBins.set(binX, (xBins.get(binX) || 0) + count);
+    });
+    
+    // Find peaks in X distribution (these are lane centers)
+    const sortedBins = Array.from(xBins.entries()).sort((a, b) => b[1] - a[1]);
+    const maxDensity = sortedBins[0]?.[1] || 1;
+    const threshold = maxDensity * 0.15; // Lowered to 15% - more sensitive to detect lanes
+    
+    const laneCenters: number[] = [];
+    const processed: Set<number> = new Set();
+    
+    sortedBins.forEach(([x, density]) => {
+      if (density < threshold) return;
+      
+      // Check if too close to existing lane (within 3 meters)
+      const isNewLane = !laneCenters.some(center => Math.abs(x - center) < 3);
+      if (isNewLane) {
+        laneCenters.push(x);
+        processed.add(x);
+      }
+    });
+    
+    // Sort lanes from left to right
+    laneCenters.sort((a, b) => a - b);
+    
+    // Generate lane boundaries (assume 3.5m wide lanes)
+    const LANE_WIDTH = 3.5;
+    return laneCenters.map(center => ({
+      centerX: center,
+      leftEdge: center - LANE_WIDTH / 2,
+      rightEdge: center + LANE_WIDTH / 2,
+      density: xBins.get(center) || 0
+    }));
+  }, [globalTrailHistory]);
+
+  // Detect lane center X position for a specific Y segment
+  const findLaneCenterInSegment = useCallback((
+    laneLeftEdge: number,
+    laneRightEdge: number,
+    segmentY: number,
+    segmentHeight: number
+  ): number => {
+    const xPositions: number[] = [];
+    const gridSize = 1;
+
+    // Collect all trail points in this Y segment and X range (lane bounds)
+    for (let y = segmentY; y < segmentY + segmentHeight; y += 0.5) {
+      for (let x = laneLeftEdge; x <= laneRightEdge; x += 0.5) {
+        const key = getGridKey(x, y, gridSize);
+        if (globalTrailHistory.has(key)) {
+          // Weighted by density
+          const count = globalTrailHistory.get(key) || 0;
+          for (let i = 0; i < count; i++) {
+            xPositions.push(x);
+          }
+        }
+      }
+    }
+
+    // Return weighted average X position (center of mass)
+    if (xPositions.length === 0) return (laneLeftEdge + laneRightEdge) / 2; // Fallback to midpoint
+    return xPositions.reduce((sum, x) => sum + x, 0) / xPositions.length;
+  }, [globalTrailHistory, getGridKey]);
+
+  // Check if a curve is needed based on lateral variance
+  const shouldUseCurve = useCallback((segmentCenters: Array<{x: number, y: number}>): boolean => {
+    if (segmentCenters.length < 3) return false;
+
+    // Calculate lateral variance
+    const xValues = segmentCenters.map(p => p.x);
+    const xMean = xValues.reduce((sum, x) => sum + x, 0) / xValues.length;
+    const variance = xValues.reduce((sum, x) => sum + Math.pow(x - xMean, 2), 0) / xValues.length;
+    const stdDev = Math.sqrt(variance);
+
+    // Use curve if lateral variation > 0.2 meters (reduced from 0.5m for more visible curves)
+    return stdDev > 0.2;
+  }, []);
+
+  // Generate smooth curved path for lane separator
+  const generateCurvedPath = useCallback((
+    segmentCenters: Array<{x: number, y: number}>
+  ): Array<{x: number, y: number}> => {
+    if (!shouldUseCurve(segmentCenters)) {
+      // Straight line fallback
+      return [segmentCenters[0], segmentCenters[segmentCenters.length - 1]];
+    }
+
+    // Return all segment centers for quadratic curve interpolation
+    return segmentCenters;
+  }, [shouldUseCurve]);
+
+  // Detect curve points for a lane separator
+  const detectCurveForLane = useCallback((laneLeftEdge: number, laneRightEdge: number) => {
+    const SEGMENT_SIZE = 10; // 10 meters along Y-axis (increased for smoother curves)
+    const segmentCenters: Array<{x: number, y: number}> = [];
+
+    // Divide Y-axis into segments
+    for (let y = DETECTION_ZONE.minY; y <= DETECTION_ZONE.maxY; y += SEGMENT_SIZE) {
+      const segmentHeight = Math.min(SEGMENT_SIZE, DETECTION_ZONE.maxY - y);
+      const centerX = findLaneCenterInSegment(laneLeftEdge, laneRightEdge, y, segmentHeight);
+      segmentCenters.push({ x: centerX, y: y + segmentHeight / 2 });
+    }
+
+    return generateCurvedPath(segmentCenters);
+  }, [findLaneCenterInSegment, generateCurvedPath]);
+
+  const drawHeatMapRoad = useCallback((ctx: CanvasRenderingContext2D) => {
+    if (globalTrailHistory.size === 0) return;
+
+    const maxCount = Math.max(...Array.from(globalTrailHistory.values()));
+    const gridSize = 1; // 1 meter for higher resolution heat map
+    
+    // Draw heat map cells
+    globalTrailHistory.forEach((count, key) => {
+      const [x, y] = key.split('_').map(Number);
+      
+      // Skip if outside detection zone
+      if (x < DETECTION_ZONE.minX || x > DETECTION_ZONE.maxX ||
+          y < DETECTION_ZONE.minY || y > DETECTION_ZONE.maxY) {
+        return;
+      }
+      
       const intensity = count / maxCount;
-      const alpha = Math.min(intensity * 0.6, 0.5); // Cap at 50% opacity
+      const alpha = Math.min(intensity * 0.8 + 0.2, 0.7); // Increased visibility: 20-70% opacity
       
       // Use blue-to-red gradient based on intensity
       const hue = (1 - intensity) * 240; // 240 (blue) to 0 (red)
@@ -586,7 +723,102 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
       
       ctx.fillRect(pos1.x, pos1.y, width, height);
     });
-  }, [globalTrailHistory, radarToVisual]);
+    
+    // Overlay inferred lane boundaries from trail data
+    const lanes = extractLaneBoundaries();
+    if (lanes.length > 0) {
+      // Draw lane separators (curved dotted lines between lanes)
+      ctx.strokeStyle = '#FFFFFF'; // White for lane separators (high contrast)
+      ctx.lineWidth = 2;
+      ctx.setLineDash([1.5, 3]); // Refined dotted pattern: 1.5px dot, 3px gap (50% smaller)
+      ctx.globalAlpha = 0.9; // Slightly transparent for better visibility
+
+      // Helper function to draw curved separator following traffic flow
+      const drawCurvedSeparator = (leftEdge: number, rightEdge: number) => {
+        const curvePoints = detectCurveForLane(leftEdge, rightEdge);
+        if (curvePoints.length < 2) return;
+
+        const visualPoints = curvePoints.map(p => radarToVisual(p.x, p.y));
+
+        // Always use smooth curves if we have more than 2 points
+        if (visualPoints.length > 2) {
+          // Use Catmull-Rom spline for smoother, more natural curves
+          ctx.beginPath();
+          ctx.moveTo(visualPoints[0].x, visualPoints[0].y);
+
+          for (let i = 0; i < visualPoints.length - 1; i++) {
+            const p0 = visualPoints[Math.max(0, i - 1)];
+            const p1 = visualPoints[i];
+            const p2 = visualPoints[i + 1];
+            const p3 = visualPoints[Math.min(visualPoints.length - 1, i + 2)];
+
+            // Calculate control points for smoother curve
+            const cp1x = p1.x + (p2.x - p0.x) / 6;
+            const cp1y = p1.y + (p2.y - p0.y) / 6;
+            const cp2x = p2.x - (p3.x - p1.x) / 6;
+            const cp2y = p2.y - (p3.y - p1.y) / 6;
+
+            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+          }
+          ctx.stroke();
+        } else {
+          // Simple line for 2 points or less
+          ctx.beginPath();
+          ctx.moveTo(visualPoints[0].x, visualPoints[0].y);
+          ctx.lineTo(visualPoints[visualPoints.length - 1].x, visualPoints[visualPoints.length - 1].y);
+          ctx.stroke();
+        }
+      };
+
+      // Draw separators between lanes with wider sampling for better curve detection
+      for (let i = 0; i < lanes.length - 1; i++) {
+        const currentLane = lanes[i];
+        const nextLane = lanes[i + 1];
+
+        // Separator samples from both adjacent lanes for better curve detection
+        const separatorLeft = currentLane.rightEdge - 1.0;  // Sample 1m into current lane
+        const separatorRight = nextLane.leftEdge + 1.0;     // Sample 1m into next lane
+        drawCurvedSeparator(separatorLeft, separatorRight);
+      }
+
+      // Draw left edge of first lane and right edge of last lane
+      if (lanes.length > 0) {
+        // Left edge of first lane - sample the lane itself for curve data
+        drawCurvedSeparator(lanes[0].leftEdge - 0.5, lanes[0].centerX);
+
+        // Right edge of last lane - sample the lane itself for curve data
+        const lastIndex = lanes.length - 1;
+        drawCurvedSeparator(lanes[lastIndex].centerX, lanes[lastIndex].rightEdge + 0.5);
+      }
+      
+      // Draw lane centers with labels (optional - can be toggled)
+      ctx.strokeStyle = '#FFA500'; // Orange for lane centers
+      ctx.lineWidth = 1;
+      ctx.setLineDash([1, 2]); // Refined smaller dashes for center lines (50% reduction)
+      ctx.globalAlpha = 0.6;
+      
+      lanes.forEach((lane, index) => {
+        const centerStart = radarToVisual(lane.centerX, DETECTION_ZONE.minY);
+        const centerEnd = radarToVisual(lane.centerX, DETECTION_ZONE.maxY);
+        ctx.beginPath();
+        ctx.moveTo(centerStart.x, centerStart.y);
+        ctx.lineTo(centerEnd.x, centerEnd.y);
+        ctx.stroke();
+        
+        // Label lane number
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        ctx.strokeText(`Lane ${index + 1}`, centerStart.x + 5, centerStart.y + 20);
+        ctx.fillText(`Lane ${index + 1}`, centerStart.x + 5, centerStart.y + 20);
+      });
+      
+      // Reset canvas state
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+  }, [globalTrailHistory, radarToVisual, extractLaneBoundaries]);
 
   const drawVehicle = useCallback((ctx: CanvasRenderingContext2D, vehicle: VehicleState, pos: { x: number; y: number }, size: { width: number; height: number }) => {
     // Use color based on vehicle type to match the legend
@@ -594,22 +826,43 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     const color = VEHICLE_COLORS[vehicleType as keyof typeof VEHICLE_COLORS] || VEHICLE_COLORS.unknown;
     const speedIntensity = getSpeedIntensity(vehicle.position.speed);
 
+    // Check if vehicle is "retained" (not actively tracked, but still visible due to digital twin mode)
+    const now = Date.now();
+    const timeSinceLastSeen = now - vehicle.lastSeen.getTime();
+    const isRetained = timeSinceLastSeen > 5000; // Retained if not seen for more than 5 seconds
+    const retainedOpacity = 0.5; // 50% opacity for retained vehicles
 
-    // Apply speed-based color intensity
+    // Apply speed-based color intensity, with reduced opacity for retained vehicles
     const rgb = hexToRgb(color);
+    const finalOpacity = isRetained ? retainedOpacity : speedIntensity;
     if (rgb) {
-      ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${speedIntensity})`;
+      ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${finalOpacity})`;
     } else {
       ctx.fillStyle = color;
+    }
+
+    // Save context for opacity changes
+    ctx.save();
+    if (isRetained) {
+      ctx.globalAlpha = retainedOpacity;
     }
 
     // Draw vehicle rectangle
     ctx.fillRect(pos.x - size.width / 2, pos.y - size.height / 2, size.width, size.height);
 
-    // Draw vehicle border
+    // Draw vehicle border (dashed for retained, solid for active)
     ctx.strokeStyle = '#1F2937';
     ctx.lineWidth = 1;
+    if (isRetained) {
+      ctx.setLineDash([2, 2]); // Dashed border for retained vehicles
+    }
     ctx.strokeRect(pos.x - size.width / 2, pos.y - size.height / 2, size.width, size.height);
+    if (isRetained) {
+      ctx.setLineDash([]); // Reset dash pattern
+    }
+
+    // Restore context
+    ctx.restore();
 
     // Draw callout line extending diagonally upward
     const calloutLengthX = 80; // Horizontal length of callout line
@@ -726,34 +979,64 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     });
   }, [vehicles, renderOptions, radarToVisual, calculateVehicleSize, drawVehicleTrail, drawVehicle, drawSpeedVector]);
 
-  // Automatic trail cleanup effect
+  // Save digital twin mode preference
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('digitalTwinMode', JSON.stringify(digitalTwinMode));
+    }
+  }, [digitalTwinMode]);
+
+  // Automatic vehicle and trail cleanup effect with retention support
   useEffect(() => {
     const cleanupInterval = setInterval(() => {
       const { trailConfig } = renderOptions;
-      
-      // Clean up old trail history for heat map
-      if (globalTrailHistory.size > 1000) { // Prevent memory growth
+      const now = Date.now();
+
+      // Clean up old trail history for heat map (more lenient for digital twin mode)
+      const maxHistorySize = digitalTwinMode ? 5000 : 1000;
+      const keepRecentCount = digitalTwinMode ? 2000 : 500;
+
+      if (globalTrailHistory.size > maxHistorySize) {
         const entries = Array.from(globalTrailHistory.entries());
-        const recentEntries = entries.slice(-500); // Keep only recent 500 entries
+        const recentEntries = entries.slice(-keepRecentCount);
         setGlobalTrailHistory(new Map(recentEntries));
       }
-      
-      // Clean up old vehicle trails based on persistence setting
-      if (!trailConfig.persistence) {
-        setVehicles(prevVehicles => 
-          prevVehicles.map(vehicle => ({
+
+      // Clean up vehicles based on retention duration (digital twin mode vs real-time mode)
+      const retentionMs = digitalTwinMode ? vehicleRetentionDuration : 5000;
+      const MAX_RETAINED_VEHICLES = 100;
+
+      setVehicles(prevVehicles => {
+        // Filter vehicles by retention duration
+        let retained = prevVehicles.filter(vehicle => {
+          const timeSinceLastSeen = now - vehicle.lastSeen.getTime();
+          return timeSinceLastSeen < retentionMs;
+        });
+
+        // Cap at max retained vehicles
+        if (retained.length > MAX_RETAINED_VEHICLES) {
+          retained = retained
+            .sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime())
+            .slice(0, MAX_RETAINED_VEHICLES);
+        }
+
+        // Clean up vehicle trails based on persistence setting
+        if (!trailConfig.persistence) {
+          retained = retained.map(vehicle => ({
             ...vehicle,
             trajectory: vehicle.trajectory.filter(pos => {
-              const age = Date.now() - pos.timestamp.getTime();
-              return age < trailConfig.fadeDuration * 2; // Keep trails for 2x fade duration
+              const age = now - pos.timestamp.getTime();
+              return age < trailConfig.fadeDuration * 2;
             })
-          })).filter(vehicle => vehicle.trajectory.length > 0)
-        );
-      }
-    }, 10000); // Cleanup every 10 seconds
+          })).filter(vehicle => vehicle.trajectory.length > 0);
+        }
+
+        return retained;
+      });
+    }, 1000); // Check every second for more accurate retention
 
     return () => clearInterval(cleanupInterval);
-  }, [renderOptions, globalTrailHistory]);
+  }, [renderOptions, globalTrailHistory, digitalTwinMode, vehicleRetentionDuration]);
 
   // Subscribe to tracking channel when WebSocket is connected
   useEffect(() => {
@@ -858,23 +1141,40 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     return () => ws.removeEventListener('message', handleMessage);
   }, [ws, getGridKey, globalTrailHistory, renderOptions.trailConfig.length]);
 
-  // Effect to draw heat map once when sufficient data accumulated
+  // Continuous heat map rendering - updates as trail data accumulates
   useEffect(() => {
-    if (heatMapInitialized || globalTrailHistory.size < 100) return;
-    
     const canvas = heatMapCanvasRef.current;
     if (!canvas) return;
+    
+    // Set canvas size
+    canvas.width = CANVAS_CONFIG.width;
+    canvas.height = CANVAS_CONFIG.height;
+    
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawHeatMapRoad(ctx);
+    // Redraw heat map whenever trail history changes
+    const drawHeatMap = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (showRoadFromTrails && globalTrailHistory.size > 0) {
+        const laneCount = extractLaneBoundaries().length;
+        console.log(`[HeatMap] Drawing road with ${globalTrailHistory.size} trail points, detected ${laneCount} lanes`);
+        drawHeatMapRoad(ctx);
+      } else if (!showRoadFromTrails) {
+        console.log('[HeatMap] Road from trails disabled');
+      } else {
+        console.log(`[HeatMap] No trail data yet (have ${globalTrailHistory.size} points)`);
+      }
+    };
     
-    // Use setTimeout to avoid setState in effect
-    setTimeout(() => {
+    drawHeatMap();
+    
+    // Mark as initialized when we have data
+    if (globalTrailHistory.size >= 20 && !heatMapInitialized) {
+      console.log('[HeatMap] Initialized with sufficient data');
       setHeatMapInitialized(true);
-    }, 0);
-  }, [globalTrailHistory, heatMapInitialized, drawHeatMapRoad]);
+    }
+  }, [globalTrailHistory, drawHeatMapRoad, heatMapInitialized, showRoadFromTrails, extractLaneBoundaries]);
 
   // Handle canvas wheel for zoom (defined before useEffect to avoid hoisting issues)
   const handleCanvasWheel = useCallback((event: WheelEvent) => {
@@ -916,15 +1216,14 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     const animate = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-
-      // Road background removed as requested
+      // Draw road background (optional - user can toggle)
       // drawRoadBackground(ctx);
 
       // Draw detection zone
       drawDetectionZone(ctx);
 
-      // Lane boundaries removed as part of road background
-      // drawLaneBoundaries(ctx);
+      // Draw lane boundaries from trail data (if we have enough data)
+      // The heat map canvas overlay shows trail-based lanes
 
       // Draw coordinate system indicator
       if (showCoordinateSystem) {
@@ -1038,6 +1337,24 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
           <label className="flex items-center">
             <input
               type="checkbox"
+              checked={showRoadFromTrails}
+              onChange={(e) => setShowRoadFromTrails(e.target.checked)}
+              className="mr-2"
+            />
+            <span className="text-sm text-gray-700">Show Road from Trails</span>
+          </label>
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={digitalTwinMode}
+              onChange={(e) => setDigitalTwinMode(e.target.checked)}
+              className="mr-2"
+            />
+            <span className="text-sm text-gray-700">Digital Twin Mode (30s history)</span>
+          </label>
+          <label className="flex items-center">
+            <input
+              type="checkbox"
               checked={renderOptions.showSpeedVectors}
               onChange={(e) => setRenderOptions(prev => ({ ...prev, showSpeedVectors: e.target.checked }))}
               className="mr-2"
@@ -1077,7 +1394,8 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
               ref={heatMapCanvasRef}
               width={CANVAS_CONFIG.width}
               height={CANVAS_CONFIG.height}
-              className="absolute top-0 left-0 w-full h-full canvas-heatmap"
+              className="absolute top-0 left-0 w-full h-full canvas-heatmap pointer-events-none"
+              style={{ zIndex: 1 }}
             />
             <canvas
               ref={canvasRef}
@@ -1346,6 +1664,11 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
                 <div className="text-xs text-gray-600">
                   Trail Data Points: {globalTrailHistory.size}
                   {heatMapInitialized && <span className="ml-2 text-green-600">✓ Rendered</span>}
+                  {extractLaneBoundaries().length > 0 && (
+                    <span className="ml-2 text-yellow-600">
+                      • {extractLaneBoundaries().length} lanes detected
+                    </span>
+                  )}
                 </div>
               </div>
 

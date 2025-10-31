@@ -140,11 +140,11 @@ export const CANVAS_CONFIG = {
 export const DEFAULT_TRAIL_CONFIG: TrailConfig = {
   length: 50,
   opacity: 0.8,
-  fadeDuration: 5000, // 5 seconds
+  fadeDuration: 30000, // 30 seconds (increased from 5s for digital twin effect)
   colorMode: 'vehicle',
   thickness: 2,
   smoothness: 0.5,
-  persistence: false
+  persistence: true // Enabled by default for digital twin visualization
 } as const;
 
 // Lane configuration for visualization
