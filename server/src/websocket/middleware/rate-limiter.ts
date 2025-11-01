@@ -15,7 +15,7 @@ interface RateLimitInfo {
 
 export class RateLimiter {
   private limits: Map<WebSocket, RateLimitInfo> = new Map();
-  private readonly maxMessagesPerMinute: number = 100;
+  private readonly maxMessagesPerMinute: number = 1000;
 
   /**
    * Check if client is within rate limit

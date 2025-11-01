@@ -388,7 +388,7 @@ Periodic dashboard summary (1 Hz when clients are subscribed to a device).
 **Error Codes**:
 - `PARSE_ERROR` - Invalid JSON
 - `VALIDATION_ERROR` - Message schema validation failed
-- `RATE_LIMIT_EXCEEDED` - Too many messages (>100/min)
+- `RATE_LIMIT_EXCEEDED` - Too many messages (>1000/min)
 - `PROCESSING_ERROR` - Error processing request
 
 #### Rate Limit Error
@@ -397,13 +397,13 @@ Periodic dashboard summary (1 Hz when clients are subscribed to a device).
 {
   "type": "error",
   "code": "RATE_LIMIT_EXCEEDED",
-  "message": "Rate limit exceeded. Maximum 100 messages per minute."
+  "message": "Rate limit exceeded. Maximum 1000 messages per minute."
 }
 ```
 
 ## Rate Limiting
 
-- **Maximum**: 100 messages per minute per client
+- **Maximum**: 1000 messages per minute per client
 - **Window**: Rolling 60-second window
 - **Action**: Messages exceeding limit are rejected with error response
 
@@ -514,7 +514,7 @@ client.connect();
 
 ## Security Considerations
 
-1. **Rate Limiting**: Clients are limited to 100 messages/minute
+1. **Rate Limiting**: Clients are limited to 1000 messages/minute
 2. **Message Validation**: All messages validated with Zod schemas
 3. **Connection Cleanup**: Connections properly cleaned up on disconnect
 4. **Error Handling**: All errors caught and logged without exposing internals

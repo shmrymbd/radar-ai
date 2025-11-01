@@ -50,7 +50,7 @@ export class ErrorHandler {
    * Handle rate limit errors
    */
   public handleRateLimitError(ws: WebSocket): void {
-    this.sendError(ws, 'Rate limit exceeded. Maximum 100 messages per minute.', 'rate_limit_exceeded');
+    this.sendError(ws, 'Rate limit exceeded. Maximum 1000 messages per minute.', 'rate_limit_exceeded');
   }
 
   /**

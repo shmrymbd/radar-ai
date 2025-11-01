@@ -169,7 +169,7 @@ Timer (1000ms interval)
 
 **Algorithm**:
 - Sliding window counter
-- 100 messages per minute per client
+- 1000 messages per minute per client
 - Automatic window reset
 
 **Implementation**:
@@ -473,7 +473,7 @@ Map<targetId, {
 ### Rate Limiting
 
 **Current Implementation**:
-- 100 messages/minute per client
+- 1000 messages/minute per client
 - Sliding window algorithm
 
 **Future Enhancements**:
