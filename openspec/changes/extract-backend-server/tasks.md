@@ -32,32 +32,32 @@
   - ✅ Added console format for development, JSON for production
   - ✅ Added daily log rotation for production
 
-## Phase 3: Extract Services
+## Phase 3: Extract Services ✅ COMPLETE
 
-- [ ] **Move Redis services**
-  - Copy redis.ts → server/src/config/redis.ts
-  - Copy redis-storage.ts → server/src/services/redis/storage.ts
-  - Copy redis-pubsub-service.ts → server/src/services/redis/pubsub.ts
-  - Fix imports and test
+- [x] **Move Redis services**
+  - ✅ redis.ts → server/src/config/redis.ts (completed in Phase 2)
+  - ✅ redis-storage.ts → server/src/services/redis/storage.ts
+  - ✅ redis-pubsub-service.ts → server/src/services/redis/pubsub.ts
+  - ✅ Fixed imports and replaced console.log with Winston logger
 
-- [ ] **Move MongoDB services**
-  - Copy mongodb.ts → server/src/config/mongodb.ts
-  - Copy passdata-mongodb-service.ts → server/src/services/mongodb/passdata.ts
-  - Fix imports and test
+- [x] **Move MongoDB services**
+  - ✅ mongodb.ts → server/src/config/mongodb.ts (completed in Phase 2)
+  - ✅ passdata-mongodb-service.ts → server/src/services/mongodb/passdata.ts
+  - ✅ Fixed imports and replaced console.log with Winston logger
 
-- [ ] **Move tracking services**
-  - Copy vehicle-tracker.ts → server/src/services/tracking/vehicle-tracker.ts
-  - Copy vehicle-tracking-redis.ts → server/src/services/tracking/tracking-redis.ts
-  - Fix imports and test
+- [x] **Move tracking services**
+  - ✅ vehicle-tracker.ts → server/src/services/tracking/vehicle-tracker.ts
+  - ✅ vehicle-tracking-redis.ts → server/src/services/tracking/tracking-redis.ts
+  - ✅ Fixed imports and replaced console.log with Winston logger
 
-- [ ] **Move classification services**
-  - Copy classification-processor.ts → server/src/services/classification/processor.ts
-  - Fix imports and test
+- [x] **Move classification services**
+  - ✅ Skipped - classification-processor.ts is deprecated (replaced by MongoDB queries)
+  - ✅ Classification functionality handled by PassDataMongoDBService
 
-- [ ] **Move shared types**
-  - Copy types/radar.ts → server/src/types/radar.ts
-  - Copy types/tracking.ts → server/src/types/tracking.ts
-  - Copy types/classification.ts → server/src/types/classification.ts
+- [x] **Move shared types**
+  - ✅ types/radar.ts → server/src/types/radar.ts (including Processed* types)
+  - ✅ types/tracking.ts → server/src/types/tracking.ts
+  - ✅ types/classification.ts → server/src/types/classification.ts
 
 ## Phase 4: Extract WebSocket Servers
 

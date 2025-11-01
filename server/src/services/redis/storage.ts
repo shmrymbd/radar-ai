@@ -1,0 +1,583 @@
+import { getRedisClient } from '../../config/redis';
+import { createLogger } from '../../utils/logger';
+import {
+  ProcessedObjectData,
+  ProcessedLaneStatus,
+  ProcessedPassData,
+  ProcessedTrafficData,
+  ProcessedRegionData,
+  ObjectData,
+  ObjectDataSummary,
+  LaneStatusSummary,
+  TrafficDataSummary,
+  RegionDataSummary,
+} from '../../types/radar';
+
+const logger = createLogger('redis-storage');
+
+export class RedisStorage {
+  private static instance: RedisStorage;
+  private keyPrefix: string;
+
+  public static getInstance(): RedisStorage {
+    if (!RedisStorage.instance) {
+      RedisStorage.instance = new RedisStorage();
+    }
+    return RedisStorage.instance;
+  }
+
+  constructor() {
+    this.keyPrefix = process.env.RADAR_DEVICE_ID || 'P1-center';
+  }
+
+  /**
+   * Set the device prefix for Redis keys
+   */
+  public setDevicePrefix(deviceId: string): void {
+    this.keyPrefix = deviceId;
+  }
+
+  /**
+   * Get the current device prefix
+   */
+  public getDevicePrefix(): string {
+    return this.keyPrefix;
+  }
+
+  /**
+   * Get device-specific Redis key
+   */
+  private getDeviceKey(dataType: string): string {
+    return `${this.keyPrefix}/${dataType}`;
+  }
+
+  /**
+   * Store Object Data (0x01) in Redis
+   */
+  public async storeObjectData(data: ProcessedObjectData): Promise<void> {
+    try {
+      const redisClient = await getRedisClient();
+      const key = this.getDeviceKey('objectdata');
+      const value = JSON.stringify(data);
+
+      // Store with TTL of 1 hour (3600 seconds)
+      await redisClient.lPush(key, value);
+      await redisClient.expire(key, 3600);
+
+      // Keep only last 1000 entries
+      await redisClient.lTrim(key, 0, 999);
+
+      logger.info('Stored Object Data', { numEntries: data.numEntries });
+    } catch (error) {
+      logger.error('Error storing Object Data', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Store raw ObjectData directly
+   * Validates entries array exists and numEntries matches entries.length
+   */
+  public async storeRawObjectData(data: ObjectData): Promise<void> {
+    // Validate entries array exists
+    if (!data.entries || !Array.isArray(data.entries)) {
+      const error = new Error('ObjectData must have entries array');
+      logger.error('Error storing raw Object Data', { error: error.message, data });
+      throw error;
+    }
+
+    // Validate numEntries matches entries.length (warn if mismatched, but allow)
+    if (data.numEntries !== undefined && data.numEntries !== data.entries.length) {
+      logger.warn('numEntries mismatch', {
+        numEntries: data.numEntries,
+        entriesLength: data.entries.length,
+      });
+    }
+
+    try {
+      const redisClient = await getRedisClient();
+      const key = this.getDeviceKey('objectdata');
+      const value = JSON.stringify(data);
+
+      // Store with TTL of 1 hour (3600 seconds)
+      await redisClient.lPush(key, value);
+      await redisClient.expire(key, 3600);
+
+      // Keep only the latest 100 entries
+      await redisClient.lTrim(key, 0, 99);
+
+      logger.info('Stored raw Object Data', { numEntries: data.numEntries });
+    } catch (error) {
+      logger.error('Error storing raw Object Data', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Store Lane Status (0x04) in Redis
+   */
+  public async storeLaneStatus(data: ProcessedLaneStatus): Promise<void> {
+    try {
+      const client = await getRedisClient();
+      const key = this.getDeviceKey('lanestatus');
+      const value = JSON.stringify(data);
+
+      // Store with TTL of 1 hour
+      await client.lPush(key, value);
+      await client.expire(key, 3600);
+
+      // Keep only last 1000 entries
+      await client.lTrim(key, 0, 999);
+
+      logger.info('Stored Lane Status', { numEntries: data.numEntries });
+    } catch (error) {
+      logger.error('Error storing Lane Status', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Store Pass Data (0x05) in Redis
+   */
+  public async storePassData(data: ProcessedPassData): Promise<void> {
+    try {
+      const key = this.getDeviceKey('passdata');
+      const value = JSON.stringify(data);
+
+      // Store with TTL of 2 hours (7200 seconds) - events are less frequent
+      const client = await getRedisClient();
+      await client.lPush(key, value);
+      await client.expire(key, 7200);
+
+      // Keep only last 500 entries
+      await client.lTrim(key, 0, 499);
+
+      logger.info('Stored Pass Data', { laneNumber: data.laneNumber });
+    } catch (error) {
+      logger.error('Error storing Pass Data', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Store Traffic Data (0x03) in Redis
+   */
+  public async storeTrafficData(data: ProcessedTrafficData): Promise<void> {
+    try {
+      const key = this.getDeviceKey('trafficdata');
+      const value = JSON.stringify(data);
+
+      // Store with TTL of 24 hours (86400 seconds) - statistical data
+      const client = await getRedisClient();
+      await client.lPush(key, value);
+      await client.expire(key, 86400);
+
+      // Keep only last 100 entries
+      await client.lTrim(key, 0, 99);
+
+      logger.info('Stored Traffic Data', { targetLane: data.targetLane });
+    } catch (error) {
+      logger.error('Error storing Traffic Data', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Store Region Data (0x02) in Redis
+   */
+  public async storeRegionData(data: ProcessedRegionData): Promise<void> {
+    try {
+      const key = this.getDeviceKey('regiondata');
+      const value = JSON.stringify(data);
+
+      // Store with TTL of 24 hours
+      const client = await getRedisClient();
+      await client.lPush(key, value);
+      await client.expire(key, 86400);
+
+      // Keep only last 100 entries
+      await client.lTrim(key, 0, 99);
+
+      logger.info('Stored Region Data', { direction: data.direction });
+    } catch (error) {
+      logger.error('Error storing Region Data', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get latest Object Data from Redis
+   * Returns raw ObjectData[] from Redis (not ProcessedObjectData[])
+   */
+  public async getLatestObjectData(limit: number = 10): Promise<ObjectData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${this.keyPrefix}/objectdata`;
+      // Get the latest entries from the end of the list
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting Object Data', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Get latest Lane Status from Redis
+   */
+  public async getLatestLaneStatus(limit: number = 10): Promise<ProcessedLaneStatus[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${this.keyPrefix}/lanestatus`;
+      // Get the latest entries from the end of the list
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting Lane Status', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Get latest Pass Data from Redis
+   */
+  public async getLatestPassData(limit: number = 10): Promise<ProcessedPassData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${this.keyPrefix}/passdata`;
+      // Get the latest entries from the end of the list
+      const data = await client.lRange(key, -limit, -1);
+
+      // Process the raw radar data into the expected format
+      const processedData: ProcessedPassData[] = [];
+
+      for (const item of data) {
+        const rawData = JSON.parse(item);
+
+        // Extract data from the raw radar structure
+        if (rawData.entries && rawData.entries.length > 0) {
+          for (const entry of rawData.entries) {
+            processedData.push({
+              deviceId: rawData.deviceId,
+              // Use frame timestamp (when Node-RED processed) for consistency
+              // NOT entry.passing.time (vehicle passing time - older by ~4 minutes)
+              timestamp: new Date(rawData.timestamp),
+              laneNumber: entry.lane?.number || 0,
+              crossSectionPosition: entry.crossSection?.position || 0,
+              crossSectionSpeed: entry.crossSection?.speed || 0,
+              headwayTime: entry.crossSection?.headwayTime || 0,
+              occupancyDuration: entry.passing?.occupancyDuration || 0,
+              occupancyStatus: entry.passing?.occupancyStatus || 'unknown',
+              vehicleType: entry.vehicleType?.name || 'unknown',
+            });
+          }
+        }
+      }
+
+      return processedData;
+    } catch (error) {
+      logger.error('Error getting Pass Data', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Get latest Traffic Data from Redis
+   */
+  public async getLatestTrafficData(limit: number = 10): Promise<ProcessedTrafficData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${this.keyPrefix}/trafficdata`;
+      // Get the latest entries from the end of the list
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting Traffic Data', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Get latest Region Data from Redis
+   */
+  public async getLatestRegionData(limit: number = 10): Promise<ProcessedRegionData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${this.keyPrefix}/regiondata`;
+      // Get the latest entries from the end of the list
+      const data = await client.lRange(key, -limit, -1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting Region Data', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Get real-time dashboard summary
+   */
+  public async getDashboardSummary(): Promise<DashboardSummary> {
+    try {
+      const [objectData, laneStatus, passData, trafficData, regionData] = await Promise.all([
+        this.getLatestObjectData(1),
+        this.getLatestLaneStatus(1),
+        this.getLatestPassData(5),
+        this.getLatestTrafficData(1),
+        this.getLatestRegionData(1),
+      ]);
+
+      return {
+        timestamp: new Date(),
+        objectData: objectData[0] || null,
+        laneStatus: laneStatus[0] || null,
+        recentPassEvents: passData,
+        trafficData: trafficData[0] || null,
+        regionData: regionData[0] || null,
+        summary: this.calculateDashboardSummary(objectData[0], laneStatus[0], trafficData[0]),
+      };
+    } catch (error) {
+      logger.error('Error getting dashboard summary', { error });
+      throw error;
+    }
+  }
+
+  private calculateDashboardSummary(
+    objectData: ObjectData | null,
+    laneStatus: ProcessedLaneStatus | null,
+    trafficData: ProcessedTrafficData | null
+  ): DashboardSummaryData {
+    let totalVehicles = 0;
+    let averageSpeed = 0;
+    let lanesWithQueues = 0;
+    let totalVehiclesOnline = 0;
+    let averageOccupancyRate = 0;
+    let totalFlowRate = 0;
+    let trafficDensity = 0;
+    const alerts: string[] = [];
+
+    // Process Object Data
+    if (objectData) {
+      totalVehicles = objectData.numEntries || 0;
+      if (objectData.entries && objectData.entries.length > 0) {
+        const speeds = objectData.entries
+          .filter((entry) => entry.speedKmh > 0)
+          .map((entry) => entry.speedKmh);
+        averageSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
+      }
+    }
+
+    // Process Lane Status
+    if (laneStatus && laneStatus.entries) {
+      lanesWithQueues = laneStatus.entries.filter((entry) => entry.queue.length > 0).length;
+      totalVehiclesOnline = laneStatus.entries.reduce((sum, entry) => sum + entry.vehiclesOnline, 0);
+
+      const occupancyRates = laneStatus.entries
+        .filter((entry) => entry.spaceOccupancyRate > 0)
+        .map((entry) => entry.spaceOccupancyRate);
+      averageOccupancyRate =
+        occupancyRates.length > 0 ? occupancyRates.reduce((a, b) => a + b, 0) / occupancyRates.length : 0;
+
+      // Generate alerts for high occupancy or long queues
+      laneStatus.entries.forEach((entry) => {
+        if (entry.spaceOccupancyRate > 80) {
+          alerts.push(`High occupancy on Lane ${entry.lane.number}: ${entry.spaceOccupancyRate}%`);
+        }
+        if (entry.queue.length > 50) {
+          alerts.push(`Long queue on Lane ${entry.lane.number}: ${entry.queue.length}m`);
+        }
+      });
+    }
+
+    // Process Traffic Data
+    if (trafficData) {
+      totalFlowRate = trafficData.vehicleFlows?.totalFlow || 0;
+      trafficDensity = trafficData.trafficDensity || 0;
+    }
+
+    return {
+      totalVehicles,
+      averageSpeed,
+      lanesWithQueues,
+      totalVehiclesOnline,
+      averageOccupancyRate,
+      totalFlowRate,
+      trafficDensity,
+      alerts,
+    };
+  }
+
+  /**
+   * Get device-specific object data
+   */
+  public async getDeviceObjectData(deviceId: string, limit: number = 1): Promise<ObjectData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/objectdata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting object data for device', { deviceId, error });
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific lane status data
+   */
+  public async getDeviceLaneStatus(deviceId: string, limit: number = 1): Promise<ProcessedLaneStatus[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/lanestatus`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting lane status for device', { deviceId, error });
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific pass data
+   */
+  public async getDevicePassData(deviceId: string, limit: number = 5): Promise<ProcessedPassData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/passdata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting pass data for device', { deviceId, error });
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific traffic data
+   */
+  public async getDeviceTrafficData(deviceId: string, limit: number = 1): Promise<ProcessedTrafficData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/trafficdata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting traffic data for device', { deviceId, error });
+      return [];
+    }
+  }
+
+  /**
+   * Get device-specific region data
+   */
+  public async getDeviceRegionData(deviceId: string, limit: number = 1): Promise<ProcessedRegionData[]> {
+    try {
+      const client = await getRedisClient();
+      const key = `${deviceId}/regiondata`;
+      const data = await client.lRange(key, 0, limit - 1);
+      return data.map((item: string) => JSON.parse(item));
+    } catch (error) {
+      logger.error('Error getting region data for device', { deviceId, error });
+      return [];
+    }
+  }
+
+  /**
+   * Get dashboard summary for specific device
+   */
+  public async getDeviceDashboardSummary(deviceId: string): Promise<DashboardSummary> {
+    try {
+      const [objectData, laneStatus, passData, trafficData, regionData] = await Promise.all([
+        this.getDeviceObjectData(deviceId, 1),
+        this.getDeviceLaneStatus(deviceId, 1),
+        this.getDevicePassData(deviceId, 5),
+        this.getDeviceTrafficData(deviceId, 1),
+        this.getDeviceRegionData(deviceId, 1),
+      ]);
+
+      return {
+        timestamp: new Date(),
+        objectData: objectData[0] || null,
+        laneStatus: laneStatus[0] || null,
+        recentPassEvents: passData,
+        trafficData: trafficData[0] || null,
+        regionData: regionData[0] || null,
+        summary: {
+          totalVehicles: objectData[0]?.numEntries || 0,
+          averageSpeed:
+            laneStatus[0]?.entries?.reduce((sum, entry) => sum + (entry.speeds?.average || 0), 0) /
+              (laneStatus[0]?.entries?.length || 1) || 0,
+          lanesWithQueues: laneStatus[0]?.entries?.filter((entry) => entry.queue?.length > 0).length || 0,
+          totalVehiclesOnline:
+            laneStatus[0]?.entries?.reduce((sum, entry) => sum + (entry.vehiclesOnline || 0), 0) || 0,
+          averageOccupancyRate:
+            laneStatus[0]?.entries?.reduce((sum, entry) => sum + (entry.spaceOccupancyRate || 0), 0) /
+              (laneStatus[0]?.entries?.length || 1) || 0,
+          totalFlowRate: trafficData[0]?.totalFlow || 0,
+          trafficDensity: trafficData[0]?.trafficDensity || 0,
+          alerts: [],
+        },
+      };
+    } catch (error) {
+      logger.error('Error getting dashboard summary for device', { deviceId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Clear all radar data from Redis
+   */
+  public async clearAllData(): Promise<void> {
+    try {
+      const keys = [
+        this.getDeviceKey('objectdata'),
+        this.getDeviceKey('lanestatus'),
+        this.getDeviceKey('passdata'),
+        this.getDeviceKey('trafficdata'),
+        this.getDeviceKey('regiondata'),
+      ];
+
+      const client = await getRedisClient();
+      await Promise.all(keys.map((key) => client.del(key)));
+      logger.info('Cleared all radar data from Redis');
+    } catch (error) {
+      logger.error('Error clearing data', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Get Redis connection status
+   */
+  public async getConnectionStatus(): Promise<boolean> {
+    try {
+      const client = await getRedisClient();
+      await client.ping();
+      return true;
+    } catch (error) {
+      logger.error('Redis connection error', { error });
+      return false;
+    }
+  }
+}
+
+// Dashboard summary types
+export interface DashboardSummary {
+  timestamp: Date;
+  objectData: ObjectData | null;
+  laneStatus: ProcessedLaneStatus | null;
+  recentPassEvents: ProcessedPassData[];
+  trafficData: ProcessedTrafficData | null;
+  regionData: ProcessedRegionData | null;
+  summary: DashboardSummaryData;
+}
+
+export interface DashboardSummaryData {
+  totalVehicles: number;
+  averageSpeed: number;
+  lanesWithQueues: number;
+  totalVehiclesOnline: number;
+  averageOccupancyRate: number;
+  totalFlowRate: number;
+  trafficDensity: number;
+  alerts: string[];
+}
