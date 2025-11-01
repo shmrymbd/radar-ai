@@ -105,12 +105,14 @@ server/
 └── docs/                   # Documentation
 ```
 
-## Health Check
+## Health Checks
 
-Check server health:
+The server exposes health check endpoints on port 8081:
+
+### Comprehensive Health Status
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8081/health
 ```
 
 Response:
@@ -118,13 +120,41 @@ Response:
 ```json
 {
   "status": "healthy",
+  "timestamp": "2025-11-01T12:00:00.000Z",
+  "uptime": 3600,
   "services": {
-    "redis": "connected",
-    "mongodb": "connected",
-    "websocket": "running"
-  },
-  "uptime": 3600
+    "redis": {
+      "status": "healthy",
+      "latency": 5
+    },
+    "mongodb": {
+      "status": "healthy",
+      "latency": 12
+    },
+    "websocket": {
+      "status": "healthy",
+      "message": "WebSocket server running"
+    }
+  }
 }
+```
+
+### Kubernetes Probes
+
+**Liveness Probe** (is process alive):
+```bash
+curl http://localhost:8081/alive
+```
+
+**Readiness Probe** (ready to serve traffic):
+```bash
+curl http://localhost:8081/ready
+```
+
+### Prometheus Metrics
+
+```bash
+curl http://localhost:8081/metrics
 ```
 
 ## WebSocket API

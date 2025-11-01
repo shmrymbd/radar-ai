@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # Backend Server
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: radar-ai-backend
+    ports:
+      - "8080:8080"  # WebSocket server
+      - "8081:8081"  # Health check server
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - LOG_LEVEL=info
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MONGODB_HOST=mongodb
+      - MONGODB_PORT=27017
+      - MONGODB_USERNAME=admin
+      - MONGODB_PASSWORD=admin123
+      - MONGODB_AUTH_DATABASE=admin
+      - MONGODB_DASHBOARD_DATABASE=traffic_signal_dashboard
+      - RADAR_PROTOCOL_VERSION=2.1
+      - RADAR_DEVICE_ID=P1-center
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - radar-network
+    volumes:
+      - ./logs:/app/logs
+
+  # Redis Server
+  redis:
+    image: redis:7-alpine
+    container_name: radar-ai-redis
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --notify-keyspace-events KEA
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - radar-network
+
+  # MongoDB Server
+  mongodb:
+    image: mongo:6
+    container_name: radar-ai-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin123
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - radar-network
+
+networks:
+  radar-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+    driver: local
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local

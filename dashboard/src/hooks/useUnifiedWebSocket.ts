@@ -33,8 +33,9 @@ export function useUnifiedWebSocket(): WebSocketConnection {
     }
 
     setConnectionStatus('connecting');
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:8080`;
+    // Use environment variable or fall back to default
+    const wsUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL ||
+      `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8080`;
     
     try {
       const websocket = new WebSocket(wsUrl);
