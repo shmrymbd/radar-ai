@@ -1042,6 +1042,56 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     return () => clearInterval(cleanupInterval);
   }, [renderOptions, digitalTwinMode, vehicleRetentionDuration]);
 
+  // Fetch initial tracking data from API
+  const fetchInitialTrackingData = useCallback(async () => {
+    try {
+      console.log('📡 Fetching initial tracking data from API...');
+      const response = await fetch(`/api/tracking?device=${selectedDevice.id}`);
+      const result = await response.json();
+
+      if (result.success && result.data && result.data.vehicles) {
+        console.log(`✅ Loaded ${result.data.vehicles.length} vehicles from API`);
+        
+        // Convert API response to VehicleState format
+        const initialVehicles: VehicleState[] = result.data.vehicles.map((vehicle: any) => {
+          const position: VehiclePosition = vehicle.position || {
+            targetId: vehicle.targetId,
+            x: 0,
+            y: 0,
+            length: 5,
+            width: 2,
+            height: 1.5,
+            speed: 0,
+            vehicleType: 'car',
+            laneNo: 255,
+            timestamp: new Date(),
+            xSpeed: 0,
+            ySpeed: 0,
+            acceleration: 0
+          };
+
+          return {
+            targetId: vehicle.targetId,
+            position,
+            trajectory: vehicle.trajectory || [position],
+            isVisible: vehicle.isVisible !== false,
+            lastSeen: new Date(vehicle.lastSeen || Date.now()),
+            enterTime: new Date(vehicle.enterTime || Date.now())
+          };
+        });
+
+        setVehicles(initialVehicles);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching initial tracking data:', error);
+    }
+  }, [selectedDevice.id]);
+
+  // Fetch initial data when component mounts or device changes
+  useEffect(() => {
+    fetchInitialTrackingData();
+  }, [fetchInitialTrackingData]);
+
   // Subscribe to tracking channel when WebSocket is connected
   useEffect(() => {
     if (ws && connectionStatus === 'connected') {
@@ -1068,8 +1118,18 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
 
         if (data.type === 'tracking_data' || data.type === 'tracking_update') {
           // Handle tracking updates
-          if (data.data && data.data.vehicles) {
-            const incomingVehicles: VehiclePosition[] = data.data.vehicles;
+          // WebSocket format: { type: 'tracking_update', data: { vehicles: [...] } }
+          // API format: { success: true, data: { vehicles: [...] } }
+          let vehiclesData = null;
+          
+          if (data.data) {
+            // WebSocket message: data.data.vehicles
+            vehiclesData = data.data.vehicles || data.data.data?.vehicles;
+          }
+          
+          if (vehiclesData && Array.isArray(vehiclesData) && vehiclesData.length > 0) {
+            console.log(`📦 Received ${vehiclesData.length} vehicles via WebSocket`);
+            const incomingVehicles: VehiclePosition[] = vehiclesData;
 
             setVehicles(prevVehicles => {
               const updatedVehicles = incomingVehicles.map((vehicle: VehiclePosition) => {
