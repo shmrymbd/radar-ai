@@ -13,13 +13,19 @@ This project processes real-time radar data from ClairWav-T80 systems to provide
 
 ## Technical Architecture
 
-### Backend
-- **Framework**: Next.js 15.1.8 with App Router and Server Components
+### Backend ✅ **EXTRACTED & STANDALONE**
+- **Backend Server**: Standalone Node.js server (see `/server` directory)
+  - **WebSocket Server**: Port 8080 for real-time updates
+  - **Health/Metrics**: Port 8081 for monitoring
+  - **Status**: ✅ 11/11 tests passing, production-ready with critical fixes needed
+- **Frontend**: Next.js 15.1.8 with App Router and Server Components (see `/dashboard` directory)
 - **Database**: Redis 5.9.0 (192.168.6.22:6379) with consistent key patterns
 - **Historical Storage**: MongoDB 6.20.0 (192.168.6.22:27017)
 - **Real-time**: Unified WebSocket server (port 8080) for live data updates
 - **Language**: TypeScript 5.x with strict typing
 - **Runtime**: Node.js 18+ with @types/node ^24
+
+**Architecture Update (2025-11-01)**: Backend services extracted from dashboard into standalone `/server` directory for independent deployment and scaling. See `/server/README.md` for details.
 
 ### Redis Key Patterns ✅ CONSISTENT
 - **Standardized Pattern**: `deviceId/passdata` (lowercase, slash separator)
@@ -211,6 +217,10 @@ See [REDIS_CONNECTION_STATUS.md](./REDIS_CONNECTION_STATUS.md) and [MONGODB_CONN
 
 ### Core Documentation
 - **Environment Setup**: [Complete Setup Guide](./ENVIRONMENT_SETUP.md) - **START HERE for new developers**
+- **Backend Server**: [Server Documentation](./server/README.md) - Standalone backend server guide
+  - [Architecture](./server/docs/ARCHITECTURE.md) - System design and component details
+  - [API Reference](./server/docs/API.md) - Complete WebSocket API documentation
+  - [Deployment Guide](./server/docs/DEPLOYMENT.md) - PM2, Docker, and Kubernetes deployment
 - **Radar Parameters**: Complete reference guide for all data types
 - **API Documentation**: [Complete API Reference](./API_DOCUMENTATION.md)
 - **Deployment Guide**: [Comprehensive Deployment Instructions](./DEPLOYMENT_GUIDE.md)

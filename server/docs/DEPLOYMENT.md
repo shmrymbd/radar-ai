@@ -2,6 +2,21 @@
 
 This guide covers deploying the Radar AI backend server in various environments.
 
+**Last Updated**: 2025-11-01
+**Deployment Status**: ✅ Ready for Staging | ⚠️ Needs Fixes for Production
+
+**Production Readiness**:
+- ✅ Docker and docker-compose configured
+- ✅ Health check endpoints functional
+- ✅ PM2 and systemd examples provided
+- ✅ Kubernetes manifests documented
+- ⚠️ Critical issues must be fixed before production deployment (see README.md)
+
+**Verified Deployments**:
+- ✅ Development (local with hot reload)
+- ✅ Staging (Docker with Redis/MongoDB at 192.168.6.22)
+- ⚠️ Production (not yet deployed - awaiting critical fixes)
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)

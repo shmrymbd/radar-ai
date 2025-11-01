@@ -2,6 +2,23 @@
 
 The Radar AI backend server provides a unified WebSocket API for real-time communication with dashboard clients.
 
+**Last Updated**: 2025-11-01
+**API Version**: 1.0
+**Status**: ✅ Operational
+
+**Key Features**:
+- Real-time vehicle tracking updates
+- Classification metrics streaming
+- Dashboard summary data
+- Multi-device support
+- Message validation with Zod schemas
+- Rate limiting (100 messages/minute per client)
+
+**Known Limitations**:
+- Device IDs are currently hardcoded in subscription logic (will be made dynamic)
+- No authentication required (to be added in future)
+- Rate limiting configuration not fully integrated with environment variables
+
 ## Connection
 
 **Endpoint**: `ws://localhost:8080` (configurable via `PORT` env variable)

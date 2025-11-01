@@ -31,11 +31,22 @@ describe('HealthCheckService', () => {
 
   describe('isReady', () => {
     it('should return true when services are healthy', async () => {
-      const { isRedisConnected } = require('../../src/config/redis');
-      const { isMongoConnected } = require('../../src/config/mongodb');
+      const { getRedisClient, isRedisConnected } = require('../../src/config/redis');
+      const { getMongoClient, isMongoConnected } = require('../../src/config/mongodb');
 
+      // Mock Redis
       isRedisConnected.mockReturnValue(true);
+      getRedisClient.mockResolvedValue({
+        ping: jest.fn().mockResolvedValue('PONG'),
+      });
+
+      // Mock MongoDB
       isMongoConnected.mockReturnValue(true);
+      getMongoClient.mockReturnValue({
+        db: jest.fn().mockReturnValue({
+          command: jest.fn().mockResolvedValue({ ok: 1 }),
+        }),
+      });
 
       const result = await healthCheck.isReady();
       expect(result).toBe(true);

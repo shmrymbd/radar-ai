@@ -20,6 +20,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Hydration safety: Never use `Math.random()` or `localStorage` during initial render
 - OpenSpec workflow: Proposal → Implementation → Archive
 
+## Backend Server Architecture (Updated 2025-11-01)
+
+**IMPORTANT**: Backend services have been extracted to `/server` directory as standalone Node.js application.
+
+**Directory Structure:**
+```
+radar-ai/
+├── server/          # ✨ Standalone backend (WebSocket, Redis, MongoDB services)
+│   ├── src/
+│   │   ├── websocket/    # WebSocket server and handlers
+│   │   ├── services/     # Business logic (Redis, MongoDB, tracking)
+│   │   ├── config/       # Configuration management
+│   │   └── index.ts      # Server entry point
+│   ├── tests/            # 11/11 passing
+│   └── docs/             # ARCHITECTURE.md, API.md, DEPLOYMENT.md
+└── dashboard/       # Next.js frontend (connects to backend via WebSocket)
+```
+
+**Running the Backend:**
+```bash
+# Backend server (required for real-time features)
+cd server
+npm install
+cp .env.example .env  # Configure Redis/MongoDB
+npm start             # Port 8080 (WebSocket), 8081 (Health)
+
+# Frontend dashboard
+cd dashboard
+npm run dev           # Port 3000
+```
+
+**Key Points:**
+- Backend runs independently on ports 8080 (WebSocket) and 8081 (Health/Metrics)
+- ✅ Tests: 11/11 passing
+- ⚠️ Known issues: 4 critical fixes needed before production (see `/server/README.md`)
+- Dashboard connects via `NEXT_PUBLIC_BACKEND_WS_URL` environment variable
+- Health check: `curl http://localhost:8081/health`
+
 ## Critical Environment Setup
 
 Create `dashboard/.env.local` with:
@@ -48,21 +86,55 @@ LANES=11,12,13,485            # Valid lane numbers
 
 # Development Settings
 DISABLE_RATE_LIMITING=true     # Set to 'true' to disable rate limiting in development
+
+# Backend Server Configuration (Updated 2025-11-01)
+UNIFIED_WEBSOCKET_PORT=8082
+NEXT_PUBLIC_BACKEND_WS_URL=ws://localhost:8082
+NEXT_PUBLIC_BACKEND_HTTP_URL=http://localhost:8081
 ```
+
+**Critical Setup Steps (Updated 2025-11-01):**
+
+1. **Configure Redis Keyspace Notifications** (REQUIRED for live tracking):
+   ```bash
+   redis-cli -h 192.168.6.22 CONFIG SET notify-keyspace-events Kl
+   ```
+   - `K` = Keyspace events
+   - `l` = List commands (LPUSH, RPUSH)
+   - Without this, WebSocket server won't receive real-time updates
+
+2. **Database Hosts**: MUST be `192.168.6.22` (not `localhost`)
+   - Redis and MongoDB are on the network server
+   - Using localhost will connect to wrong/empty database
+
+3. **WebSocket Port**: Use port `8082` (not 8080)
+   - Port 8080 reserved for standalone backend server
+   - Port 8082 for embedded WebSocket server (current development mode)
 
 **Note:** `REDIS_KEY_PREFIX` is deprecated and no longer needed (removed 2025-10-28). Device-specific keys use format `{deviceId}/passdata` directly.
 
 ## Essential Commands
 
-### Development
+### Backend Server (New - 2025-11-01)
+```bash
+cd server
+npm run dev             # Start backend with hot reload
+npm start               # Start production backend
+npm test                # Run test suite (11/11 passing)
+npm run build           # Build TypeScript
+curl http://localhost:8081/health  # Check health
+```
+
+### Dashboard (Frontend)
 ```bash
 cd dashboard
-npm run dev:full         # Start Next.js + WebSocket (recommended)
-npm run dev             # Start Next.js dev server (port 3000)
-npm run websocket       # Start unified WebSocket server only (8080)
+npm run dev:full         # Start Next.js + WebSocket (legacy - uses embedded server)
+npm run dev             # Start Next.js dev server only (port 3000)
 npm run lint           # Run ESLint checks
 npm run build          # Test production build locally
 ```
+
+**Note**: `npm run dev:full` still works for backwards compatibility but new development should use separate backend server (`cd server && npm start`).
 
 ### Database Management
 ```bash
@@ -177,19 +249,24 @@ const fetchData = useCallback(async () => {
 
 ## Common Gotchas
 
-1. **IP Addresses**: Redis/MongoDB are at 192.168.6.22 (updated 2025-10-28)
-2. **Redis key case sensitivity** (must be lowercase)
-3. **Device selection** requires full WebSocket reconnect
-4. **ClassificationProcessor methods** are deprecated
-5. **WebSocket port conflicts** (3000 vs 8080)
-6. **MongoDB database name** is traffic_signal_dashboard
-7. **Never hardcode device IDs** in Redis key access
-8. **Hydration mismatches** with localStorage/random
-9. **~~REDIS_KEY_PREFIX~~**: DEPRECATED - removed 2025-10-28, not needed
-10. **Lane Configuration**: Default lanes are 11,12,13,485 (from LANES env var)
-11. **Rate Limiting**: Disabled by default in development (DISABLE_RATE_LIMITING=true)
-12. **Dynamic ports**: API routes use dynamic port detection, never hardcode localhost:3000
-13. **Classification tab refresh**: Use `useCallback` + debouncing (2s minimum) to prevent excessive API calls (fixed 2025-10-28)
+1. **IP Addresses**: Redis/MongoDB are at 192.168.6.22 (NOT localhost) - updated 2025-10-28
+2. **Redis Keyspace Notifications**: MUST be enabled or live tracking won't work (fixed 2025-11-01)
+   ```bash
+   redis-cli -h 192.168.6.22 CONFIG SET notify-keyspace-events Kl
+   ```
+3. **WebSocket Port**: Use 8082 for embedded server, 8080 reserved for standalone backend
+4. **Redis key case sensitivity** (must be lowercase)
+5. **Device selection** requires full WebSocket reconnect
+6. **ClassificationProcessor methods** are deprecated
+7. **MongoDB database name** is traffic_signal_dashboard
+8. **Never hardcode device IDs** in Redis key access
+9. **Hydration mismatches** with localStorage/random
+10. **~~REDIS_KEY_PREFIX~~**: DEPRECATED - removed 2025-10-28, not needed
+11. **Lane Configuration**: Default lanes are 11,12,13,485 (from LANES env var)
+12. **Rate Limiting**: Disabled by default in development (DISABLE_RATE_LIMITING=true)
+13. **Dynamic ports**: API routes use dynamic port detection, never hardcode localhost:3000
+14. **Classification tab refresh**: Use `useCallback` + debouncing (2s minimum) to prevent excessive API calls (fixed 2025-10-28)
+15. **Wrong database host = no data**: Always verify REDIS_HOST and MONGODB_HOST in .env.local
 
 ## OpenSpec Changes
 
@@ -222,4 +299,10 @@ Skip proposal for bug fixes and non-breaking changes.
    - MongoDB: Connection pooling + retry logic
    - Redis: Singleton pattern + reconnection
    - Always use HTTPS in production
-- redis and mongodb ip change to 192.168.6.22
+   - Redis and MongoDB IP: 192.168.6.22 (verified and active)
+
+3. Backend Server Security (see `/server/README.md` for details):
+   - ⚠️ No authentication on WebSocket currently (to be added)
+   - Rate limiting: 100 messages/minute per client
+   - Message validation via Zod schemas
+   - Health endpoints on port 8081 (should be internal only in production)
