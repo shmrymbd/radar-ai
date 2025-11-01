@@ -4,6 +4,7 @@
  */
 
 import { getWebSocketServer } from './websocket/server';
+import { HealthServer } from './services/health/health-server';
 import { createLogger } from './utils/logger';
 
 const logger = createLogger('main');
@@ -18,19 +19,26 @@ async function main() {
     // Get WebSocket server instance (singleton)
     const wsServer = getWebSocketServer();
 
+    // Start health check server
+    const healthServer = HealthServer.getInstance();
+    healthServer.start();
+
     logger.info('Backend server started successfully', {
       status: wsServer.getStatus(),
+      healthPort: healthServer.getPort(),
     });
 
     // Graceful shutdown handlers
     process.on('SIGINT', async () => {
       logger.info('Received SIGINT, shutting down gracefully...');
+      await healthServer.stop();
       await wsServer.shutdown();
       process.exit(0);
     });
 
     process.on('SIGTERM', async () => {
       logger.info('Received SIGTERM, shutting down gracefully...');
+      await healthServer.stop();
       await wsServer.shutdown();
       process.exit(0);
     });
