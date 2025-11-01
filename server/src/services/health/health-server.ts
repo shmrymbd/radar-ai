@@ -25,8 +25,8 @@ export class HealthServer {
 
   private constructor() {
     this.healthCheck = HealthCheckService.getInstance();
-    // Use a separate port for health checks (WebSocket port + 1)
-    this.port = config.port + 1;
+    // Use a separate port for health checks (configurable, defaults to WebSocket port + 1)
+    this.port = config.healthPort ?? config.port + 1;
   }
 
   /**

@@ -14,6 +14,7 @@ const envSchema = z.object({
   // Server
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).default('8080'),
+  HEALTH_PORT: z.string().transform(Number).pipe(z.number().min(1).max(65535)).optional(),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
 
   // Redis
@@ -64,6 +65,7 @@ export const config = {
   // Server
   nodeEnv: env.NODE_ENV,
   port: env.PORT,
+  healthPort: env.HEALTH_PORT,
   logLevel: env.LOG_LEVEL,
   isDevelopment: env.NODE_ENV === 'development',
   isProduction: env.NODE_ENV === 'production',

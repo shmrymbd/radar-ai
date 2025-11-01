@@ -5,6 +5,7 @@
 
 import { getWebSocketServer } from './websocket/server';
 import { HealthServer } from './services/health/health-server';
+import { getRedisClient, closeRedisConnection } from './config/redis';
 import { createLogger } from './utils/logger';
 
 const logger = createLogger('main');
@@ -15,6 +16,10 @@ const logger = createLogger('main');
 async function main() {
   try {
     logger.info('Starting Radar AI Backend Server...');
+
+    // Initialize Redis singleton client for health checks
+    await getRedisClient();
+    logger.info('Redis singleton client initialized');
 
     // Get WebSocket server instance (singleton)
     const wsServer = getWebSocketServer();
@@ -33,6 +38,7 @@ async function main() {
       logger.info('Received SIGINT, shutting down gracefully...');
       await healthServer.stop();
       await wsServer.shutdown();
+      await closeRedisConnection();
       process.exit(0);
     });
 
@@ -40,6 +46,7 @@ async function main() {
       logger.info('Received SIGTERM, shutting down gracefully...');
       await healthServer.stop();
       await wsServer.shutdown();
+      await closeRedisConnection();
       process.exit(0);
     });
 

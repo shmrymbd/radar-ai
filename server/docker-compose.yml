@@ -10,6 +10,7 @@ services:
       - NODE_ENV=production
       - DOCKER=true
       - PORT=8080
+      - HEALTH_PORT=9081
       - LOG_LEVEL=info
       - REDIS_HOST=192.168.6.22
       - REDIS_PORT=6379
@@ -23,7 +24,7 @@ services:
       - RADAR_DEVICE_ID=P1-center
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8081/alive"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9081/alive"]
       interval: 30s
       timeout: 5s
       retries: 3
