@@ -81,17 +81,27 @@ export class UnifiedWebSocketServer {
   }
 
   private constructor() {
-    this.wss = new WebSocketServer({ port: PORT });
-    this.vehicleTracker = new VehicleTracker();
-    this.redisStorage = RedisStorage.getInstance();
-    this.classificationProcessor = ClassificationProcessor.getInstance();
-    this.redisPubSub = RedisPubSubService.getInstance();
-    this.mongoService = PassDataMongoDBService.getInstance();
-    this.setupWebSocketServer();
-    // Initialize pub/sub asynchronously (constructor can't be async)
-    this.initializePubSub().catch((error) => {
-      console.error('❌ Failed to initialize pub/sub in constructor:', error);
-    });
+    try {
+      this.wss = new WebSocketServer({ port: PORT });
+      this.vehicleTracker = new VehicleTracker();
+      this.redisStorage = RedisStorage.getInstance();
+      this.classificationProcessor = ClassificationProcessor.getInstance();
+      this.redisPubSub = RedisPubSubService.getInstance();
+      this.mongoService = PassDataMongoDBService.getInstance();
+      this.setupWebSocketServer();
+      // Initialize pub/sub asynchronously (constructor can't be async)
+      this.initializePubSub().catch((error) => {
+        console.error('❌ Failed to initialize pub/sub in constructor:', error);
+      });
+    } catch (error: any) {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use. Please stop the existing server or use a different port.`);
+        console.error(`   Try: lsof -ti :${PORT} | xargs kill -9`);
+      } else {
+        console.error('❌ Failed to create WebSocket server:', error);
+      }
+      throw error;
+    }
   }
 
   // Use the singleton Redis client from lib/redis.ts
@@ -274,12 +284,18 @@ export class UnifiedWebSocketServer {
 
     this.wss.on('listening', () => {
       console.log(`🚀 Unified WebSocket server listening on port ${PORT}`);
+      console.log(`🔗 WebSocket URL: ws://localhost:${PORT}`);
       this.isRunning = true;
       this.startPeriodicUpdates();
     });
 
-    this.wss.on('error', (error: Error) => {
-      console.error('Unified WebSocket server error:', error);
+    this.wss.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`❌ Port ${PORT} is already in use!`);
+        console.error(`   Please stop the existing server: lsof -ti :${PORT} | xargs kill -9`);
+      } else {
+        console.error('❌ Unified WebSocket server error:', error);
+      }
     });
   }
 

@@ -6,6 +6,7 @@
 import { getWebSocketServer } from './websocket/server';
 import { HealthServer } from './services/health/health-server';
 import { getRedisClient, closeRedisConnection } from './config/redis';
+import { connectToDatabase, closeMongoConnection } from './config/mongodb';
 import { createLogger } from './utils/logger';
 
 const logger = createLogger('main');
@@ -20,6 +21,10 @@ async function main() {
     // Initialize Redis singleton client for health checks
     await getRedisClient();
     logger.info('Redis singleton client initialized');
+
+    // Initialize MongoDB connection
+    await connectToDatabase();
+    logger.info('MongoDB connection initialized');
 
     // Get WebSocket server instance (singleton)
     const wsServer = getWebSocketServer();
@@ -39,6 +44,7 @@ async function main() {
       await healthServer.stop();
       await wsServer.shutdown();
       await closeRedisConnection();
+      await closeMongoConnection();
       process.exit(0);
     });
 
@@ -47,6 +53,7 @@ async function main() {
       await healthServer.stop();
       await wsServer.shutdown();
       await closeRedisConnection();
+      await closeMongoConnection();
       process.exit(0);
     });
 

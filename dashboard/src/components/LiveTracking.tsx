@@ -472,11 +472,21 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     
     if (smoothness === 0) return points; // No interpolation
     
+    // Normalize all timestamps to Date objects
+    const normalizedPoints = points.map(p => ({
+      ...p,
+      timestamp: p.timestamp instanceof Date ? p.timestamp : new Date(p.timestamp || Date.now())
+    }));
+    
     const interpolatedPoints: VehiclePosition[] = [];
     
-    for (let i = 0; i < points.length - 1; i++) {
-      const current = points[i];
-      const next = points[i + 1];
+    for (let i = 0; i < normalizedPoints.length - 1; i++) {
+      const current = normalizedPoints[i];
+      const next = normalizedPoints[i + 1];
+      
+      // Ensure timestamps are Date objects before calling getTime()
+      const currentTime = current.timestamp instanceof Date ? current.timestamp.getTime() : new Date(current.timestamp).getTime();
+      const nextTime = next.timestamp instanceof Date ? next.timestamp.getTime() : new Date(next.timestamp).getTime();
       
       // Add current point
       interpolatedPoints.push(current);
@@ -489,14 +499,14 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
           ...current,
           x: current.x + (next.x - current.x) * ratio,
           y: current.y + (next.y - current.y) * ratio,
-          timestamp: new Date(current.timestamp.getTime() + (next.timestamp.getTime() - current.timestamp.getTime()) * ratio)
+          timestamp: new Date(currentTime + (nextTime - currentTime) * ratio)
         };
         interpolatedPoints.push(interpolatedPoint);
       }
     }
     
     // Add the last point
-    interpolatedPoints.push(points[points.length - 1]);
+    interpolatedPoints.push(normalizedPoints[normalizedPoints.length - 1]);
     
     return interpolatedPoints;
   }, [renderOptions]);
@@ -1042,6 +1052,65 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     return () => clearInterval(cleanupInterval);
   }, [renderOptions, digitalTwinMode, vehicleRetentionDuration]);
 
+  // Fetch initial tracking data from API
+  const fetchInitialTrackingData = useCallback(async () => {
+    try {
+      console.log('📡 Fetching initial tracking data from API...');
+      const response = await fetch(`/api/tracking?device=${selectedDevice.id}`);
+      const result = await response.json();
+
+      if (result.success && result.data && result.data.vehicles) {
+        console.log(`✅ Loaded ${result.data.vehicles.length} vehicles from API`);
+        
+        // Convert API response to VehicleState format
+        const initialVehicles: VehicleState[] = result.data.vehicles.map((vehicle: any) => {
+          const position: VehiclePosition = vehicle.position || {
+            targetId: vehicle.targetId,
+            x: 0,
+            y: 0,
+            length: 5,
+            width: 2,
+            height: 1.5,
+            speed: 0,
+            vehicleType: 'car',
+            laneNo: 255,
+            timestamp: new Date(),
+            xSpeed: 0,
+            ySpeed: 0,
+            acceleration: 0
+          };
+
+          // Ensure trajectory positions have Date objects for timestamps
+          const trajectory = (vehicle.trajectory || [position]).map((pos: any) => ({
+            ...pos,
+            timestamp: pos.timestamp instanceof Date ? pos.timestamp : new Date(pos.timestamp || Date.now())
+          }));
+
+          return {
+            targetId: vehicle.targetId,
+            position: {
+              ...position,
+              timestamp: position.timestamp instanceof Date ? position.timestamp : new Date(position.timestamp || Date.now())
+            },
+            trajectory,
+            isVisible: vehicle.isVisible !== false,
+            lastSeen: new Date(vehicle.lastSeen || Date.now()),
+            enterTime: new Date(vehicle.enterTime || Date.now())
+          };
+        });
+
+        setVehicles(initialVehicles);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching initial tracking data:', error);
+    }
+  }, [selectedDevice.id]);
+
+  // Fetch initial data when component mounts or device changes
+  useEffect(() => {
+    fetchInitialTrackingData();
+  }, [fetchInitialTrackingData]);
+
   // Subscribe to tracking channel when WebSocket is connected
   useEffect(() => {
     if (ws && connectionStatus === 'connected') {
@@ -1068,13 +1137,28 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
 
         if (data.type === 'tracking_data' || data.type === 'tracking_update') {
           // Handle tracking updates
-          if (data.data && data.data.vehicles) {
-            const incomingVehicles: VehiclePosition[] = data.data.vehicles;
+          // WebSocket format: { type: 'tracking_update', data: { vehicles: [...] } }
+          // API format: { success: true, data: { vehicles: [...] } }
+          let vehiclesData = null;
+          
+          if (data.data) {
+            // WebSocket message: data.data.vehicles
+            vehiclesData = data.data.vehicles || data.data.data?.vehicles;
+          }
+          
+          if (vehiclesData && Array.isArray(vehiclesData) && vehiclesData.length > 0) {
+            console.log(`📦 Received ${vehiclesData.length} vehicles via WebSocket`);
+            const incomingVehicles: VehiclePosition[] = vehiclesData;
 
             setVehicles(prevVehicles => {
               const updatedVehicles = incomingVehicles.map((vehicle: VehiclePosition) => {
                 const existingVehicle = prevVehicles.find(v => v.targetId === vehicle.targetId);
 
+                // Ensure timestamp is a Date object
+                const vehicleTimestamp = vehicle.timestamp 
+                  ? (vehicle.timestamp instanceof Date ? vehicle.timestamp : new Date(vehicle.timestamp))
+                  : new Date();
+                
                 const newPosition: VehiclePosition = {
                   targetId: vehicle.targetId,
                   x: vehicle.x,
@@ -1085,7 +1169,7 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
                   speed: vehicle.speed,
                   vehicleType: vehicle.vehicleType,
                   laneNo: vehicle.laneNo,
-                  timestamp: new Date(),
+                  timestamp: vehicleTimestamp,
                   xSpeed: vehicle.xSpeed || 0,
                   ySpeed: vehicle.ySpeed || 0,
                   acceleration: vehicle.acceleration || 0
