@@ -53,6 +53,11 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
   const trailBatchTimer = useRef<NodeJS.Timeout | null>(null);
   const lastLaneBoundarySize = useRef<number>(0); // Track trail size for lane boundary calculation
 
+  // Vehicle update batching (500ms display refresh)
+  const vehicleUpdateQueue = useRef<VehiclePosition[][]>([]); // Queue of incoming vehicle arrays
+  const vehicleUpdateTimer = useRef<NodeJS.Timeout | null>(null);
+  const lastVehicleUpdateTime = useRef<number>(0);
+
   // Lane boundaries state - calculated independently from render
   const [laneBoundaries, setLaneBoundaries] = useState<Array<{centerX: number, leftEdge: number, rightEdge: number, density: number}>>([]);
 
@@ -83,6 +88,99 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
 
     console.log(`[TrailBatch] Processed ${vehiclesToProcess.length} vehicles`);
   }, [getGridKey]);
+
+  // Batch process vehicle updates (500ms display refresh)
+  const processBatchedVehicleUpdates = useCallback(() => {
+    if (vehicleUpdateQueue.current.length === 0) return;
+
+    const now = Date.now();
+    const allIncomingVehicles = vehicleUpdateQueue.current.flat();
+    vehicleUpdateQueue.current = []; // Clear queue
+
+    // Combine all vehicle updates - keep only the latest position for each targetId
+    const latestVehicleMap = new Map<string, VehiclePosition>();
+    allIncomingVehicles.forEach(vehicle => {
+      latestVehicleMap.set(vehicle.targetId, vehicle);
+    });
+    const combinedVehicles = Array.from(latestVehicleMap.values());
+
+    console.log(`[VehicleBatch] Processing ${combinedVehicles.length} unique vehicles from ${allIncomingVehicles.length} updates (500ms batch)`);
+    lastVehicleUpdateTime.current = now;
+
+    setVehicles(prevVehicles => {
+      // CPU optimization: Use Map for O(1) lookups instead of O(n) find()
+      const prevVehicleMap = new Map(prevVehicles.map(v => [v.targetId, v]));
+
+      const updatedVehicles = combinedVehicles.map((vehicle: VehiclePosition) => {
+        const existingVehicle = prevVehicleMap.get(vehicle.targetId);
+
+        const newPosition: VehiclePosition = {
+          targetId: vehicle.targetId,
+          x: vehicle.x,
+          y: vehicle.y,
+          length: vehicle.length || 4.5,
+          width: vehicle.width || 1.8,
+          height: vehicle.height || 1.5,
+          speed: vehicle.speed,
+          vehicleType: vehicle.vehicleType,
+          laneNo: vehicle.laneNo,
+          timestamp: new Date(),
+          xSpeed: vehicle.xSpeed || 0,
+          ySpeed: vehicle.ySpeed || 0,
+          acceleration: vehicle.acceleration || 0
+        };
+
+        if (existingVehicle) {
+          // Accumulate trajectory with new position
+          const updatedTrajectory = [...existingVehicle.trajectory, newPosition];
+
+          // Limit trajectory length based on config
+          const maxLength = renderOptions.trailConfig.length;
+          const trimmedTrajectory = updatedTrajectory.slice(-maxLength);
+
+          return {
+            ...existingVehicle,
+            position: newPosition,
+            trajectory: trimmedTrajectory,
+            lastSeen: new Date(),
+            isVisible: true
+          };
+        } else {
+          // New vehicle - create with initial position
+          return {
+            targetId: vehicle.targetId,
+            position: newPosition,
+            trajectory: [newPosition],
+            isVisible: true,
+            lastSeen: new Date(),
+            enterTime: new Date()
+          };
+        }
+      });
+
+      // Get the IDs of vehicles in the current update
+      const updatedVehicleIds = new Set(combinedVehicles.map(v => v.targetId));
+
+      // Keep previous vehicles that weren't in the current update (for retention)
+      const retainedVehicles = prevVehicles.filter(v => !updatedVehicleIds.has(v.targetId));
+
+      // Merge updated vehicles with retained vehicles
+      const allVehicles = [...updatedVehicles, ...retainedVehicles];
+
+      // Queue trail updates for batching (CPU optimization: process every 100ms instead of immediately)
+      trailUpdateQueue.current.push(...allVehicles);
+
+      // Schedule batch processing if not already scheduled
+      if (!trailBatchTimer.current) {
+        trailBatchTimer.current = setTimeout(() => {
+          processBatchedTrailUpdates();
+          trailBatchTimer.current = null;
+        }, 100); // Process every 100ms
+      }
+
+      return allVehicles;
+    });
+  }, [renderOptions.trailConfig.length, processBatchedTrailUpdates]);
 
   // Coordinate transformation functions - uses ref to avoid animation loop restarts
   const radarToVisual = useCallback((radarX: number, radarY: number) => {
@@ -1239,79 +1337,16 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
           if (vehiclesArray.length > 0) {
             const incomingVehicles: VehiclePosition[] = vehiclesArray;
 
-            setVehicles(prevVehicles => {
-              // CPU optimization: Use Map for O(1) lookups instead of O(n) find()
-              const prevVehicleMap = new Map(prevVehicles.map(v => [v.targetId, v]));
+            // Queue vehicles for batched processing (500ms display refresh)
+            vehicleUpdateQueue.current.push(incomingVehicles);
 
-              const updatedVehicles = incomingVehicles.map((vehicle: VehiclePosition) => {
-                const existingVehicle = prevVehicleMap.get(vehicle.targetId);
-
-                const newPosition: VehiclePosition = {
-                  targetId: vehicle.targetId,
-                  x: vehicle.x,
-                  y: vehicle.y,
-                  length: vehicle.length || 4.5,
-                  width: vehicle.width || 1.8,
-                  height: vehicle.height || 1.5,
-                  speed: vehicle.speed,
-                  vehicleType: vehicle.vehicleType,
-                  laneNo: vehicle.laneNo,
-                  timestamp: new Date(),
-                  xSpeed: vehicle.xSpeed || 0,
-                  ySpeed: vehicle.ySpeed || 0,
-                  acceleration: vehicle.acceleration || 0
-                };
-
-                if (existingVehicle) {
-                  // Accumulate trajectory with new position
-                  const updatedTrajectory = [...existingVehicle.trajectory, newPosition];
-
-                  // Limit trajectory length based on config
-                  const maxLength = renderOptions.trailConfig.length;
-                  const trimmedTrajectory = updatedTrajectory.slice(-maxLength);
-
-                  return {
-                    ...existingVehicle,
-                    position: newPosition,
-                    trajectory: trimmedTrajectory,
-                    lastSeen: new Date(),
-                    isVisible: true
-                  };
-                } else {
-                  // New vehicle - create with initial position
-                  return {
-                    targetId: vehicle.targetId,
-                    position: newPosition,
-                    trajectory: [newPosition],
-                    isVisible: true,
-                    lastSeen: new Date(),
-                    enterTime: new Date()
-                  };
-                }
-              });
-
-              // Get the IDs of vehicles in the current update
-              const updatedVehicleIds = new Set(incomingVehicles.map(v => v.targetId));
-
-              // Keep previous vehicles that weren't in the current update (for retention)
-              const retainedVehicles = prevVehicles.filter(v => !updatedVehicleIds.has(v.targetId));
-
-              // Merge updated vehicles with retained vehicles
-              const allVehicles = [...updatedVehicles, ...retainedVehicles];
-
-              // Queue trail updates for batching (CPU optimization: process every 100ms instead of immediately)
-              trailUpdateQueue.current.push(...allVehicles);
-
-              // Schedule batch processing if not already scheduled
-              if (!trailBatchTimer.current) {
-                trailBatchTimer.current = setTimeout(() => {
-                  processBatchedTrailUpdates();
-                  trailBatchTimer.current = null;
-                }, 100); // Process every 100ms
-              }
-
-              return allVehicles;
-            });
+            // Schedule batch processing if not already scheduled
+            if (!vehicleUpdateTimer.current) {
+              vehicleUpdateTimer.current = setTimeout(() => {
+                processBatchedVehicleUpdates();
+                vehicleUpdateTimer.current = null;
+              }, 500); // Process every 500ms
+            }
           }
         } else if (data.type === 'tracking_summary') {
           // Handle tracking summary updates
@@ -1323,8 +1358,15 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     };
 
     ws.addEventListener('message', handleMessage);
-    return () => ws.removeEventListener('message', handleMessage);
-  }, [ws, getGridKey, renderOptions.trailConfig.length]);
+    return () => {
+      ws.removeEventListener('message', handleMessage);
+      // Cleanup vehicle update timer
+      if (vehicleUpdateTimer.current) {
+        clearTimeout(vehicleUpdateTimer.current);
+        vehicleUpdateTimer.current = null;
+      }
+    };
+  }, [ws, processBatchedVehicleUpdates]);
 
   // Throttled heat map rendering - CPU optimization: updates every 5 seconds instead of on every trail change
   useEffect(() => {
