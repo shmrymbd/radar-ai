@@ -44,12 +44,35 @@ export class VehicleTracker {
 
   /**
    * Process ObjectData and update vehicle tracking
+   * Optimized with batch Redis operations for performance
+   * Validates entries array exists before processing
    */
   public async processObjectData(objectData: ObjectData): Promise<TrackingUpdate> {
     const currentTime = new Date();
     const vehicles: VehicleState[] = [];
 
-    // Process each vehicle entry
+    // Validate entries exists and is an array
+    if (!objectData.entries || !Array.isArray(objectData.entries)) {
+      console.error('❌ ObjectData missing entries:', objectData);
+      return {
+        type: 'vehicle_update' as const,
+        vehicles: [],
+        timestamp: currentTime.getTime()
+      };
+    }
+
+    if (objectData.entries.length === 0) {
+      return {
+        type: 'vehicle_update' as const,
+        vehicles: [],
+        timestamp: currentTime.getTime()
+      };
+    }
+
+    // Step 1: Prepare vehicle positions and collect target IDs
+    const vehiclePositions = new Map<string, VehiclePosition>();
+    const targetIds = objectData.entries.map(entry => entry.targetId);
+
     for (const entry of objectData.entries) {
       const vehiclePosition: VehiclePosition = {
         targetId: entry.targetId,
@@ -66,10 +89,23 @@ export class VehicleTracker {
         ySpeed: entry.ySpeed,
         acceleration: entry.acceleration
       };
+      vehiclePositions.set(entry.targetId, vehiclePosition);
+    }
 
-      // Get existing vehicle state from Redis
-      const existingVehicle = await this.trackingRedis.getVehicleState(entry.targetId);
-      const trajectory = existingVehicle ? await this.trackingRedis.getVehicleHistory(entry.targetId) : [];
+    // Step 2: Batch fetch all existing vehicle states and histories in parallel
+    const [existingVehicles, vehicleHistories] = await Promise.all([
+      this.trackingRedis.batchGetVehicleStates(targetIds),
+      this.trackingRedis.batchGetVehicleHistories(targetIds)
+    ]);
+
+    // Step 3: Process all vehicles in memory
+    const vehicleStatesToSave = new Map<string, VehicleState>();
+    const historyUpdates = new Map<string, VehiclePosition>();
+
+    for (const entry of objectData.entries) {
+      const vehiclePosition = vehiclePositions.get(entry.targetId)!;
+      const existingVehicle = existingVehicles.get(entry.targetId);
+      const trajectory = vehicleHistories.get(entry.targetId) || [];
 
       // Update vehicle state
       const vehicleState: VehicleState = {
@@ -81,13 +117,16 @@ export class VehicleTracker {
         enterTime: existingVehicle?.enterTime || currentTime
       };
 
-      // Update vehicle history in Redis
-      await this.trackingRedis.addToVehicleHistory(entry.targetId, vehiclePosition, this.trailConfig.length);
-      
-      // Update vehicle state in Redis
-      await this.trackingRedis.setVehicleState(entry.targetId, vehicleState);
+      vehicleStatesToSave.set(entry.targetId, vehicleState);
+      historyUpdates.set(entry.targetId, vehiclePosition);
       vehicles.push(vehicleState);
     }
+
+    // Step 4: Batch write all updates to Redis in parallel
+    await Promise.all([
+      this.trackingRedis.batchSetVehicleStates(vehicleStatesToSave),
+      this.trackingRedis.batchAddToVehicleHistories(historyUpdates, this.trailConfig.length)
+    ]);
 
     return {
       type: 'vehicle_update' as const,

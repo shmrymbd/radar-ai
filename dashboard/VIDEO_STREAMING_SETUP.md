@@ -62,7 +62,9 @@ The RTSPtoWebRTC service runs on port 8083 by default. To change this:
 
 1. Edit `docker-compose.video.yml`
 2. Update the port mapping: `"8083:8083"` → `"YOUR_PORT:8083"`
-3. Restart the service: `docker-compose -f docker-compose.video.yml down && ./start-video-streaming.sh`
+3. Restart the service: `docker compose -f docker-compose.video.yml down && ./start-video-streaming.sh`
+
+**Note**: The startup script auto-detects modern `docker compose` or legacy `docker-compose`.
 
 ## Usage
 
@@ -117,10 +119,10 @@ The RTSPtoWebRTC service runs on port 8083 by default. To change this:
 docker info
 
 # Check service logs
-docker-compose -f docker-compose.video.yml logs
+docker compose -f docker-compose.video.yml logs
 
 # Restart service
-docker-compose -f docker-compose.video.yml down
+docker compose -f docker-compose.video.yml down
 ./start-video-streaming.sh
 ```
 

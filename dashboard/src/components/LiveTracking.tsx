@@ -996,11 +996,15 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
       const maxHistorySize = digitalTwinMode ? 5000 : 1000;
       const keepRecentCount = digitalTwinMode ? 2000 : 500;
 
-      if (globalTrailHistory.size > maxHistorySize) {
-        const entries = Array.from(globalTrailHistory.entries());
-        const recentEntries = entries.slice(-keepRecentCount);
-        setGlobalTrailHistory(new Map(recentEntries));
-      }
+      // Use functional update to read current state and prevent stale closure
+      setGlobalTrailHistory(prevTrailHistory => {
+        if (prevTrailHistory.size > maxHistorySize) {
+          const entries = Array.from(prevTrailHistory.entries());
+          const recentEntries = entries.slice(-keepRecentCount);
+          return new Map(recentEntries);
+        }
+        return prevTrailHistory;
+      });
 
       // Clean up vehicles based on retention duration (digital twin mode vs real-time mode)
       const retentionMs = digitalTwinMode ? vehicleRetentionDuration : 5000;
@@ -1036,7 +1040,7 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     }, 1000); // Check every second for more accurate retention
 
     return () => clearInterval(cleanupInterval);
-  }, [renderOptions, globalTrailHistory, digitalTwinMode, vehicleRetentionDuration]);
+  }, [renderOptions, digitalTwinMode, vehicleRetentionDuration]);
 
   // Subscribe to tracking channel when WebSocket is connected
   useEffect(() => {
@@ -1124,15 +1128,17 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
               // Merge updated vehicles with retained vehicles
               const allVehicles = [...updatedVehicles, ...retainedVehicles];
 
-              // Accumulate trail history for heat map
-              const newTrailHistory = new Map(globalTrailHistory);
-              allVehicles.forEach(vehicle => {
-                vehicle.trajectory.forEach(pos => {
-                  const key = getGridKey(pos.x, pos.y);
-                  newTrailHistory.set(key, (newTrailHistory.get(key) || 0) + 1);
+              // Accumulate trail history for heat map (use functional update to avoid stale closure)
+              setGlobalTrailHistory(prevTrailHistory => {
+                const newTrailHistory = new Map(prevTrailHistory);
+                allVehicles.forEach(vehicle => {
+                  vehicle.trajectory.forEach(pos => {
+                    const key = getGridKey(pos.x, pos.y);
+                    newTrailHistory.set(key, (newTrailHistory.get(key) || 0) + 1);
+                  });
                 });
+                return newTrailHistory;
               });
-              setGlobalTrailHistory(newTrailHistory);
 
               return allVehicles;
             });
@@ -1148,7 +1154,7 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
 
     ws.addEventListener('message', handleMessage);
     return () => ws.removeEventListener('message', handleMessage);
-  }, [ws, getGridKey, globalTrailHistory, renderOptions.trailConfig.length]);
+  }, [ws, getGridKey, renderOptions.trailConfig.length]);
 
   // Continuous heat map rendering - updates as trail data accumulates
   useEffect(() => {

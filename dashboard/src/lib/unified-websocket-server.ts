@@ -69,10 +69,9 @@ export class UnifiedWebSocketServer {
   private vehicleStates: Map<string, VehicleState> = new Map();
   private isRunning: boolean = false;
 
-  // Global intervals (must be cleared on stop)
+  // Global intervals (must be cleared on stop) - now unused (fully event-driven)
   private trackingInterval: NodeJS.Timeout | null = null;
   private classificationInterval: NodeJS.Timeout | null = null;
-  private lastTrackingSummary: number = 0; // For throttling tracking summary updates
 
   public static getInstance(): UnifiedWebSocketServer {
     if (!UnifiedWebSocketServer.instance) {
@@ -89,7 +88,10 @@ export class UnifiedWebSocketServer {
     this.redisPubSub = RedisPubSubService.getInstance();
     this.mongoService = PassDataMongoDBService.getInstance();
     this.setupWebSocketServer();
-    this.initializePubSub();
+    // Initialize pub/sub asynchronously (constructor can't be async)
+    this.initializePubSub().catch((error) => {
+      console.error('❌ Failed to initialize pub/sub in constructor:', error);
+    });
   }
 
   // Use the singleton Redis client from lib/redis.ts
@@ -111,7 +113,7 @@ export class UnifiedWebSocketServer {
       console.log('✅ Redis pub/sub service initialized');
 
       // Register callback to broadcast PassData to WebSocket clients
-      this.redisPubSub.onMessage((deviceId, data) => {
+      this.redisPubSub.onMessage(async (deviceId, data) => {
         // Broadcast to all clients subscribed to this device
         this.broadcastToDevice(deviceId, {
           type: 'passdata_update',
@@ -127,6 +129,25 @@ export class UnifiedWebSocketServer {
           timestamp: new Date().toISOString(),
           data: data
         });
+
+        // Real-time: Broadcast classification metrics immediately when PassData arrives
+        try {
+          const metrics = await this.mongoService.getClassificationMetrics(deviceId);
+          const summary = await this.mongoService.getClassificationSummary(deviceId);
+          
+          this.broadcastToChannel('classification', {
+            type: 'classification_update',
+            data: {
+              metrics,
+              summary,
+              deviceId,
+              timestamp: new Date().toISOString(),
+              source: 'realtime_passdata'
+            }
+          });
+        } catch (error) {
+          console.error('Error fetching classification metrics for real-time update:', error);
+        }
 
         console.log(`📤 Broadcasted PassData update for ${deviceId} to WebSocket clients and classification channel`);
       });
@@ -155,18 +176,14 @@ export class UnifiedWebSocketServer {
             timestamp: new Date().toISOString()
           });
 
-          // Also send periodic tracking summary (throttled to avoid spam)
-          const now = Date.now();
-          if (!this.lastTrackingSummary || (now - this.lastTrackingSummary) >= 1000) {
-            const trackingData = await this.vehicleTracker.getTrackingData();
-            this.broadcastToChannel('tracking', {
-              type: 'tracking_summary',
-              data: trackingData,
-              deviceId,
-              timestamp: new Date().toISOString()
-            });
-            this.lastTrackingSummary = now;
-          }
+          // Send tracking summary immediately (real-time, no throttling)
+          const trackingData = await this.vehicleTracker.getTrackingData();
+          this.broadcastToChannel('tracking', {
+            type: 'tracking_summary',
+            data: trackingData,
+            deviceId,
+            timestamp: new Date().toISOString()
+          });
 
           console.log(`✅ Tracking update complete for ${deviceId}`);
         } catch (error) {
@@ -635,7 +652,7 @@ export class UnifiedWebSocketServer {
       const objectData = await this.redisStorage.getLatestObjectData(1);
 
       if (objectData.length > 0) {
-        // Convert ProcessedObjectData to ObjectData format for VehicleTracker
+        // Convert ObjectData format for VehicleTracker (already ObjectData from Redis)
         const rawObjectData = this.convertToObjectData(objectData[0]);
         const trackingUpdate = await this.vehicleTracker.processObjectData(rawObjectData);
 
@@ -661,11 +678,9 @@ export class UnifiedWebSocketServer {
   }
 
   private startClassificationUpdates() {
-    this.classificationInterval = setInterval(() => {
-      if (this.isRunning) {
-        this.broadcastClassificationUpdate();
-      }
-    }, 3000); // Update every 3 seconds
+    // Classification updates are now event-driven via PassData pub/sub
+    // No polling needed - updates are triggered immediately when PassData arrives
+    console.log('📡 Classification updates: Event-driven mode (triggered by PassData pub/sub)');
   }
 
   private async broadcastClassificationUpdate() {
@@ -705,19 +720,41 @@ export class UnifiedWebSocketServer {
     });
   }
 
-  private convertToObjectData(processedData: any): any {
+  /**
+   * Convert ProcessedObjectData to ObjectData format for VehicleTracker
+   * Validates entries array exists and is valid before conversion
+   */
+  private convertToObjectData(processedData: any): ObjectData {
+    // Validate processedData is a valid object
+    if (!processedData || typeof processedData !== 'object') {
+      console.error('❌ Invalid processedData: not an object', processedData);
+      throw new Error('Invalid processedData: not an object');
+    }
+
+    // Validate entries exists and is an array
+    if (!Array.isArray(processedData.entries)) {
+      console.warn('⚠️ ObjectData missing entries array:', processedData);
+      processedData.entries = []; // Default to empty array
+    }
+
     // Handle both Date objects and ISO string timestamps
     const timestamp = processedData.timestamp instanceof Date
       ? processedData.timestamp.toISOString()
       : (typeof processedData.timestamp === 'string' ? processedData.timestamp : new Date().toISOString());
 
+    // Calculate numEntries from entries length if not provided or mismatched
+    const numEntries = processedData.numEntries ?? processedData.entries?.length ?? 0;
+    if (processedData.numEntries !== undefined && processedData.numEntries !== processedData.entries.length) {
+      console.warn(`⚠️ numEntries (${processedData.numEntries}) doesn't match entries.length (${processedData.entries.length})`);
+    }
+
     return {
-      deviceId: processedData.deviceId,
+      deviceId: processedData.deviceId || 'unknown',
       frameType: '0x01' as const,
       timestamp,
-      numEntries: processedData.numEntries,
-      entries: processedData.entries,
-      packetSize: processedData.packetSize
+      numEntries,
+      entries: processedData.entries || [],
+      packetSize: processedData.packetSize || 0
     };
   }
 

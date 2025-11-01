@@ -147,9 +147,12 @@ docker run -d --name redis -p 6379:6379 redis:latest
 #### Docker Compose Setup
 
 ```bash
-# Start video streaming services
+# Start video streaming services (use start script for auto-detection)
 cd dashboard
-docker-compose -f docker-compose.video.yml up -d
+./start-video-streaming.sh
+
+# Or manually with Docker Compose:
+docker compose -f docker-compose.video.yml up -d
 ```
 
 #### Manual FFmpeg Setup (Alternative)
@@ -224,7 +227,10 @@ docker run -d \
 # Launch EC2 instance (t3.large or larger)
 # Install dependencies
 sudo apt update
-sudo apt install nodejs npm docker.io docker-compose
+sudo apt install nodejs npm docker.io
+
+# Docker Compose is included with modern Docker
+# For legacy systems, install separately: sudo apt install docker-compose
 
 # Clone and setup
 git clone <repository-url>

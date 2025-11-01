@@ -38,10 +38,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Convert ProcessedObjectData to ObjectData format for vehicle tracker
+    // Convert ObjectData format for vehicle tracker (already ObjectData from Redis)
     const rawObjectData: ObjectData = {
       deviceId: objectData[0].deviceId,
-      timestamp: objectData[0].timestamp.toISOString(),
+      timestamp: typeof objectData[0].timestamp === 'string' 
+        ? objectData[0].timestamp 
+        : (objectData[0].timestamp instanceof Date ? objectData[0].timestamp.toISOString() : new Date().toISOString()),
       numEntries: objectData[0].numEntries,
       entries: objectData[0].entries.map(entry => ({
         targetId: entry.targetId,

@@ -63,8 +63,21 @@ export class RedisStorage {
 
   /**
    * Store raw ObjectData directly
+   * Validates entries array exists and numEntries matches entries.length
    */
   public async storeRawObjectData(data: ObjectData): Promise<void> {
+    // Validate entries array exists
+    if (!data.entries || !Array.isArray(data.entries)) {
+      const error = new Error('ObjectData must have entries array');
+      console.error('❌ Error storing raw Object Data:', error.message, data);
+      throw error;
+    }
+
+    // Validate numEntries matches entries.length (warn if mismatched, but allow)
+    if (data.numEntries !== undefined && data.numEntries !== data.entries.length) {
+      console.warn(`⚠️ numEntries (${data.numEntries}) doesn't match entries.length (${data.entries.length})`);
+    }
+
     try {
       const redisClient = await getRedisClient();
       const key = this.getDeviceKey('objectdata');
@@ -178,8 +191,9 @@ export class RedisStorage {
 
   /**
    * Get latest Object Data from Redis
+   * Returns raw ObjectData[] from Redis (not ProcessedObjectData[])
    */
-  public async getLatestObjectData(limit: number = 10): Promise<ProcessedObjectData[]> {
+  public async getLatestObjectData(limit: number = 10): Promise<ObjectData[]> {
     try {
       const client = await getRedisClient();
       const key = `${this.keyPrefix}/objectdata`;
@@ -312,7 +326,7 @@ export class RedisStorage {
   }
 
   private calculateDashboardSummary(
-    objectData: ProcessedObjectData | null,
+    objectData: ObjectData | null,
     laneStatus: ProcessedLaneStatus | null,
     trafficData: ProcessedTrafficData | null
   ): DashboardSummaryData {
@@ -380,8 +394,9 @@ export class RedisStorage {
 
   /**
    * Get device-specific object data
+   * Returns raw ObjectData[] from Redis (not ProcessedObjectData[])
    */
-  public async getDeviceObjectData(deviceId: string, limit: number = 1): Promise<ProcessedObjectData[]> {
+  public async getDeviceObjectData(deviceId: string, limit: number = 1): Promise<ObjectData[]> {
     try {
       const client = await getRedisClient();
       const key = `${deviceId}/objectdata`;
@@ -530,7 +545,7 @@ export class RedisStorage {
 // Dashboard summary types
 export interface DashboardSummary {
   timestamp: Date;
-  objectData: ProcessedObjectData | null;
+  objectData: ObjectData | null; // Raw ObjectData from Redis (not ProcessedObjectData)
   laneStatus: ProcessedLaneStatus | null;
   recentPassEvents: ProcessedPassData[];
   trafficData: ProcessedTrafficData | null;

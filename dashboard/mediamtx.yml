@@ -1,0 +1,46 @@
+# MediaMTX Configuration for Traffic Signal Dashboard
+# Ultra-low latency WebRTC streaming from RTSP cameras
+
+# API configuration
+api: yes
+apiAddress: :9997
+
+# Metrics for monitoring
+metrics: yes
+metricsAddress: :9998
+
+# RTSP server (receives streams from IP cameras)
+rtsp: yes
+rtspAddress: :8554
+protocols: [tcp]
+encryption: no
+rtspAddress: :8554
+
+# WebRTC server (streams to browsers)
+webrtc: yes
+webrtcAddress: :8889
+webrtcICEServers:
+  - urls: [stun:stun.l.google.com:19302]
+
+# Performance tuning for low latency
+readTimeout: 10s
+writeTimeout: 10s
+readBufferCount: 2048
+
+# Paths (camera streams)
+# Add your cameras here or use API to add dynamically
+paths:
+  # Example camera configuration
+  # Uncomment and modify for your cameras
+
+  # camera1:
+  #   source: rtsp://192.168.7.238/live/main_stream
+  #   sourceProtocol: tcp
+  #   sourceOnDemand: yes
+  #   runOnDemand: rtsp://192.168.7.238/live/main_stream
+  #   runOnDemandRestart: yes
+
+  # Pattern for all cameras: allow dynamic addition via API
+  all_others:
+    # Allow any path to be streamed
+    # Cameras can be added via API at runtime

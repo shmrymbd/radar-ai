@@ -133,7 +133,7 @@ npm run dev
 ```
 
 ### 2. Production Deployment
-- **Docker**: Containerized deployment with docker-compose
+- **Docker**: Containerized deployment with Docker Compose
 - **PM2**: Process management for Node.js applications
 - **Nginx**: Reverse proxy and static file serving
 - **Cloud**: AWS, Azure, or GCP deployment ready

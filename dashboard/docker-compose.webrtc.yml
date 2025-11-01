@@ -1,0 +1,70 @@
+# Docker Compose for WebRTC Video Streaming
+# Ultra-low latency (300-500ms) video streaming via MediaMTX
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: radar-mediamtx
+    restart: unless-stopped
+
+    ports:
+      # RTSP port (for ingesting RTSP streams from cameras)
+      - "8554:8554"
+      # WebRTC port (for browser WebRTC connections)
+      - "8889:8889"
+      # WHIP/WHEP port (modern WebRTC ingress/egress)
+      - "8189:8189"
+      # Management API port
+      - "9997:9997"
+      # Metrics port (Prometheus compatible)
+      - "9998:9998"
+
+    environment:
+      # Protocol settings
+      - MTX_PROTOCOLS=tcp
+      - MTX_RTSPADDRESS=:8554
+      - MTX_WEBRTCADDRESS=:8889
+      - MTX_APIADDRESS=:9997
+
+      # Authentication (disabled for local network - enable in production!)
+      - MTX_RTSPAUTHMETHODS=none
+      - MTX_WEBRTCAUTHMETHODS=none
+
+      # Performance tuning for low latency
+      - MTX_READTIMEOUT=10s
+      - MTX_WRITETIMEOUT=10s
+      - MTX_READBUFFERCOUNT=2048
+
+      # Enable metrics and monitoring
+      - MTX_METRICS=yes
+      - MTX_METRICSADDRESS=:9998
+
+      # Logging
+      - MTX_LOGLEVEL=info
+
+    volumes:
+      # Configuration file (optional - uses defaults if not present)
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      # Recording storage (optional)
+      - ./video-recordings:/recordings
+      # Logs (optional)
+      - ./logs/mediamtx:/logs
+
+    networks:
+      - radar-network
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:9997/v3/config/global/get || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    labels:
+      - "com.radar.service=mediamtx"
+      - "com.radar.description=WebRTC video streaming server"
+
+networks:
+  radar-network:
+    driver: bridge
+    name: radar-network

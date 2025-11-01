@@ -55,14 +55,15 @@ export class VehicleTrackingRedis {
       const client = await getRedisClient();
       const key = this.getVehicleStateKey(targetId);
 
-      // Store vehicle state as JSON string in hash
-      // Use HSET with field-value pairs
-      await client.hSet(key, 'targetId', vehicle.targetId);
-      await client.hSet(key, 'position', JSON.stringify(vehicle.position));
-      await client.hSet(key, 'trajectory', JSON.stringify(vehicle.trajectory));
-      await client.hSet(key, 'isVisible', vehicle.isVisible ? '1' : '0');
-      await client.hSet(key, 'lastSeen', vehicle.lastSeen.toISOString());
-      await client.hSet(key, 'enterTime', vehicle.enterTime.toISOString());
+      // Store vehicle state as JSON string in hash - use single hSet call with object
+      await client.hSet(key, {
+        'targetId': vehicle.targetId,
+        'position': JSON.stringify(vehicle.position),
+        'trajectory': JSON.stringify(vehicle.trajectory),
+        'isVisible': vehicle.isVisible ? '1' : '0',
+        'lastSeen': vehicle.lastSeen.toISOString(),
+        'enterTime': vehicle.enterTime.toISOString()
+      });
       
       // Set TTL (5 minutes default)
       await client.expire(key, 300);
@@ -72,6 +73,45 @@ export class VehicleTrackingRedis {
       await client.expire(this.getVehicleIdsKey(), 300);
     } catch (error) {
       console.error(`Error storing vehicle state for ${targetId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Batch store multiple vehicle states using pipeline for performance
+   */
+  public async batchSetVehicleStates(vehicles: Map<string, VehicleState>): Promise<void> {
+    if (vehicles.size === 0) return;
+    
+    try {
+      const client = await getRedisClient();
+      const pipeline = client.multi();
+      const vehicleIdsKey = this.getVehicleIdsKey();
+
+      for (const [targetId, vehicle] of vehicles) {
+        const key = this.getVehicleStateKey(targetId);
+        
+        // Batch set hash fields
+        pipeline.hSet(key, {
+          'targetId': vehicle.targetId,
+          'position': JSON.stringify(vehicle.position),
+          'trajectory': JSON.stringify(vehicle.trajectory),
+          'isVisible': vehicle.isVisible ? '1' : '0',
+          'lastSeen': vehicle.lastSeen.toISOString(),
+          'enterTime': vehicle.enterTime.toISOString()
+        });
+        pipeline.expire(key, 300);
+        
+        // Add to vehicle IDs set
+        pipeline.sAdd(vehicleIdsKey, targetId);
+      }
+      
+      // Set expiry for vehicle IDs set once
+      pipeline.expire(vehicleIdsKey, 300);
+      
+      await pipeline.exec();
+    } catch (error) {
+      console.error('Error batch storing vehicle states:', error);
       throw error;
     }
   }
@@ -105,7 +145,7 @@ export class VehicleTrackingRedis {
   }
 
   /**
-   * Get all vehicle states
+   * Get all vehicle states - optimized with pipeline
    */
   public async getAllVehicleStates(): Promise<VehicleState[]> {
     try {
@@ -116,13 +156,30 @@ export class VehicleTrackingRedis {
         return [];
       }
 
+      // Use pipeline to fetch all vehicle states in parallel
+      const pipeline = client.multi();
+      for (const targetId of vehicleIds) {
+        pipeline.hGetAll(this.getVehicleStateKey(targetId));
+      }
+      
+      const results = await pipeline.exec();
       const vehicles: VehicleState[] = [];
       
-      // Batch get all vehicle states
-      for (const targetId of vehicleIds) {
-        const vehicle = await this.getVehicleState(targetId);
-        if (vehicle) {
-          vehicles.push(vehicle);
+      for (let i = 0; i < results.length; i++) {
+        const data = results[i] as Record<string, string> | null;
+        if (data && Object.keys(data).length > 0) {
+          try {
+            vehicles.push({
+              targetId: data.targetId,
+              position: JSON.parse(data.position),
+              trajectory: JSON.parse(data.trajectory || '[]'),
+              isVisible: data.isVisible === '1',
+              lastSeen: new Date(data.lastSeen),
+              enterTime: new Date(data.enterTime)
+            });
+          } catch (parseError) {
+            console.error(`Error parsing vehicle state for ${vehicleIds[i]}:`, parseError);
+          }
         }
       }
 
@@ -130,6 +187,52 @@ export class VehicleTrackingRedis {
     } catch (error) {
       console.error('Error getting all vehicle states:', error);
       return [];
+    }
+  }
+
+  /**
+   * Batch get multiple vehicle states using pipeline
+   */
+  public async batchGetVehicleStates(targetIds: string[]): Promise<Map<string, VehicleState>> {
+    if (targetIds.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const client = await getRedisClient();
+      const pipeline = client.multi();
+      
+      for (const targetId of targetIds) {
+        pipeline.hGetAll(this.getVehicleStateKey(targetId));
+      }
+      
+      const results = await pipeline.exec();
+      const vehicles = new Map<string, VehicleState>();
+      
+      for (let i = 0; i < results.length; i++) {
+        const data = results[i] as Record<string, string> | null;
+        const targetId = targetIds[i];
+        
+        if (data && Object.keys(data).length > 0) {
+          try {
+            vehicles.set(targetId, {
+              targetId: data.targetId,
+              position: JSON.parse(data.position),
+              trajectory: JSON.parse(data.trajectory || '[]'),
+              isVisible: data.isVisible === '1',
+              lastSeen: new Date(data.lastSeen),
+              enterTime: new Date(data.enterTime)
+            });
+          } catch (parseError) {
+            console.error(`Error parsing vehicle state for ${targetId}:`, parseError);
+          }
+        }
+      }
+
+      return vehicles;
+    } catch (error) {
+      console.error('Error batch getting vehicle states:', error);
+      return new Map();
     }
   }
 
@@ -151,6 +254,71 @@ export class VehicleTrackingRedis {
       await client.expire(key, 300);
     } catch (error) {
       console.error(`Error adding to vehicle history for ${targetId}:`, error);
+    }
+  }
+
+  /**
+   * Batch add positions to vehicle histories using pipeline
+   */
+  public async batchAddToVehicleHistories(updates: Map<string, VehiclePosition>, maxLength: number = 50): Promise<void> {
+    if (updates.size === 0) return;
+    
+    try {
+      const client = await getRedisClient();
+      const pipeline = client.multi();
+      
+      for (const [targetId, position] of updates) {
+        const key = this.getVehicleHistoryKey(targetId);
+        pipeline.lPush(key, JSON.stringify(position));
+        pipeline.lTrim(key, 0, maxLength - 1);
+        pipeline.expire(key, 300);
+      }
+      
+      await pipeline.exec();
+    } catch (error) {
+      console.error('Error batch adding to vehicle histories:', error);
+    }
+  }
+
+  /**
+   * Batch get vehicle histories using pipeline
+   */
+  public async batchGetVehicleHistories(targetIds: string[]): Promise<Map<string, VehiclePosition[]>> {
+    if (targetIds.length === 0) {
+      return new Map();
+    }
+
+    try {
+      const client = await getRedisClient();
+      const pipeline = client.multi();
+      
+      for (const targetId of targetIds) {
+        pipeline.lRange(this.getVehicleHistoryKey(targetId), 0, -1);
+      }
+      
+      const results = await pipeline.exec();
+      const histories = new Map<string, VehiclePosition[]>();
+      
+      for (let i = 0; i < results.length; i++) {
+        const history = results[i] as string[] | null;
+        const targetId = targetIds[i];
+        
+        if (history && history.length > 0) {
+          try {
+            histories.set(targetId, history.map((item: string) => JSON.parse(item)));
+          } catch (parseError) {
+            console.error(`Error parsing vehicle history for ${targetId}:`, parseError);
+            histories.set(targetId, []);
+          }
+        } else {
+          histories.set(targetId, []);
+        }
+      }
+
+      return histories;
+    } catch (error) {
+      console.error('Error batch getting vehicle histories:', error);
+      return new Map();
     }
   }
 

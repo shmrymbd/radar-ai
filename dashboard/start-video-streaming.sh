@@ -9,11 +9,24 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Check Docker Compose and set command (try modern first, then legacy)
+if docker compose version > /dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+    echo "Using: docker compose (modern)"
+elif command -v docker-compose > /dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+    echo "Using: docker-compose (legacy)"
+else
+    echo "❌ Error: Docker Compose not found"
+    echo "Please install Docker Compose and try again"
+    exit 1
+fi
+
 # Create video storage directory if it doesn't exist
 mkdir -p video-storage
 
-# Start the service using docker-compose
-docker-compose -f docker-compose.video.yml up -d
+# Start the service using Docker Compose
+$DOCKER_COMPOSE -f docker-compose.video.yml up -d
 
 # Wait for service to start
 echo "Waiting for service to start..."
@@ -26,7 +39,7 @@ if docker ps | grep -q "radar-video-streaming"; then
     echo "📁 Video storage: ./video-storage"
 else
     echo "❌ Failed to start RTSP to WebRTC service"
-    echo "Check logs with: docker-compose -f docker-compose.video.yml logs"
+    echo "Check logs with: $DOCKER_COMPOSE -f docker-compose.video.yml logs"
     exit 1
 fi
 

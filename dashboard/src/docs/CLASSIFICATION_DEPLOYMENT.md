@@ -113,7 +113,6 @@ CMD ["npm", "start"]
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
 
 services:
   redis:
@@ -154,18 +153,20 @@ volumes:
 
 ### 3. Build and Deploy
 
+**Note**: Use `docker compose` (modern) or `docker-compose` (legacy) depending on your Docker version.
+
 ```bash
 # Build and start services
-docker-compose up --build
+docker compose up --build
 
 # Run in background
-docker-compose up -d
+docker compose up -d
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop services
-docker-compose down
+docker compose down
 ```
 
 ## Production Deployment

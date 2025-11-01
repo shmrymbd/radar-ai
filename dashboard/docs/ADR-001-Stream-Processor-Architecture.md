@@ -180,7 +180,7 @@ Radar → Redis Lists (LPUSH) → List-to-Stream Bridge (BRPOP/XADD)
 - [ ] Implement `PassDataStreamProcessor.ts` with consumer group logic
 - [ ] Implement `ListToStreamBridge.ts` for migration
 - [ ] Write unit tests (>80% coverage)
-- [ ] Create Docker images and docker-compose config
+- [ ] Create Docker images and Docker Compose config
 - [ ] Run integration tests on dev environment
 
 ### Phase 2: Deploy to Staging (Week 2)

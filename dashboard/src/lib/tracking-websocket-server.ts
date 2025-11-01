@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { VehicleTracker } from './vehicle-tracker';
 import { RedisStorage } from './redis-storage';
-import { TrackingUpdate, VehicleTrackingData } from '@/types/tracking';
+import { TrackingUpdate, VehicleTrackingData, VehicleState } from '@/types/tracking';
 import { ObjectData } from '@/types/radar';
 
 const PORT = parseInt(process.env.TRACKING_WEBSOCKET_PORT || '8081', 10);
@@ -30,10 +30,10 @@ export class TrackingWebSocketServer {
       // Send initial vehicle data
       this.sendInitialData(ws);
 
-      ws.on('message', (message: string) => {
+      ws.on('message', async (message: string) => {
         try {
           const data = JSON.parse(message);
-          this.handleClientMessage(ws, data);
+          await this.handleClientMessage(ws, data);
         } catch (error) {
           console.error('Error parsing client message:', error);
         }
@@ -66,14 +66,14 @@ export class TrackingWebSocketServer {
       const objectData = await this.redisStorage.getLatestObjectData(1);
       
       if (objectData.length > 0) {
-        // Convert ProcessedObjectData to ObjectData format for VehicleTracker
+        // Convert ObjectData format for VehicleTracker (already ObjectData from Redis)
         const rawObjectData = this.convertToObjectData(objectData[0]);
-        const trackingUpdate = this.vehicleTracker.processObjectData(rawObjectData);
+        const trackingUpdate = await this.vehicleTracker.processObjectData(rawObjectData);
         this.sendMessage(ws, 'initial_tracking_data', trackingUpdate);
       }
 
       // Send current tracking summary
-      const trackingData = this.vehicleTracker.getTrackingData();
+      const trackingData = await this.vehicleTracker.getTrackingData();
       this.sendMessage(ws, 'tracking_summary', trackingData);
     } catch (error) {
       console.error('Error sending initial tracking data:', error);
@@ -99,9 +99,9 @@ export class TrackingWebSocketServer {
       const objectData = await this.redisStorage.getLatestObjectData(1);
       
       if (objectData.length > 0) {
-        // Convert ProcessedObjectData to ObjectData format for VehicleTracker
+        // Convert ObjectData format for VehicleTracker (already ObjectData from Redis)
         const rawObjectData = this.convertToObjectData(objectData[0]);
-        const trackingUpdate = this.vehicleTracker.processObjectData(rawObjectData);
+        const trackingUpdate = await this.vehicleTracker.processObjectData(rawObjectData);
         
         // Broadcast to all connected clients
         this.clients.forEach(client => {
@@ -117,7 +117,7 @@ export class TrackingWebSocketServer {
 
       // Send periodic tracking summary (every 1 second)
       if (Date.now() % 1000 < 100) {
-        const trackingData = this.vehicleTracker.getTrackingData();
+        const trackingData = await this.vehicleTracker.getTrackingData();
         this.clients.forEach(client => {
           this.sendMessage(client, 'tracking_summary', trackingData);
         });
@@ -127,22 +127,22 @@ export class TrackingWebSocketServer {
     }
   }
 
-  private handleClientMessage(ws: WebSocket, data: any) {
+  private async handleClientMessage(ws: WebSocket, data: any) {
     switch (data.type) {
       case 'get_vehicle_details':
         if (data.targetId) {
-          const vehicle = this.vehicleTracker.getVehicle(data.targetId);
+          const vehicle = await this.vehicleTracker.getVehicle(data.targetId);
           this.sendMessage(ws, 'vehicle_details', vehicle);
         }
         break;
       
       case 'get_tracking_data':
-        const trackingData = this.vehicleTracker.getTrackingData();
+        const trackingData = await this.vehicleTracker.getTrackingData();
         this.sendMessage(ws, 'tracking_data', trackingData);
         break;
       
       case 'get_visible_vehicles':
-        const visibleVehicles = this.vehicleTracker.getVisibleVehicles();
+        const visibleVehicles = await this.vehicleTracker.getVisibleVehicles();
         this.sendMessage(ws, 'visible_vehicles', visibleVehicles);
         break;
       
@@ -151,15 +151,41 @@ export class TrackingWebSocketServer {
     }
   }
 
-  private convertToObjectData(processedData: any): any {
-    // Convert ProcessedObjectData back to ObjectData format for VehicleTracker
+  /**
+   * Convert ProcessedObjectData to ObjectData format for VehicleTracker
+   * Validates entries array exists and is valid before conversion
+   */
+  private convertToObjectData(processedData: any): ObjectData {
+    // Validate processedData is a valid object
+    if (!processedData || typeof processedData !== 'object') {
+      console.error('❌ Invalid processedData: not an object', processedData);
+      throw new Error('Invalid processedData: not an object');
+    }
+
+    // Validate entries exists and is an array
+    if (!Array.isArray(processedData.entries)) {
+      console.warn('⚠️ ObjectData missing entries array:', processedData);
+      processedData.entries = []; // Default to empty array
+    }
+
+    // Handle timestamp conversion
+    const timestamp = processedData.timestamp instanceof Date
+      ? processedData.timestamp.toISOString()
+      : (typeof processedData.timestamp === 'string' ? processedData.timestamp : new Date().toISOString());
+
+    // Calculate numEntries from entries length if not provided or mismatched
+    const numEntries = processedData.numEntries ?? processedData.entries?.length ?? 0;
+    if (processedData.numEntries !== undefined && processedData.numEntries !== processedData.entries.length) {
+      console.warn(`⚠️ numEntries (${processedData.numEntries}) doesn't match entries.length (${processedData.entries.length})`);
+    }
+
     return {
-      deviceId: processedData.deviceId,
+      deviceId: processedData.deviceId || 'unknown',
       frameType: '0x01' as const,
-      timestamp: processedData.timestamp.toISOString(),
-      numEntries: processedData.numEntries,
-      entries: processedData.entries,
-      packetSize: processedData.packetSize
+      timestamp,
+      numEntries,
+      entries: processedData.entries || [],
+      packetSize: processedData.packetSize || 0
     };
   }
 
@@ -178,12 +204,12 @@ export class TrackingWebSocketServer {
     return this.clients.size;
   }
 
-  public getTrackingData(): VehicleTrackingData {
-    return this.vehicleTracker.getTrackingData();
+  public async getTrackingData(): Promise<VehicleTrackingData> {
+    return await this.vehicleTracker.getTrackingData();
   }
 
-  public getVisibleVehicles() {
-    return this.vehicleTracker.getVisibleVehicles();
+  public async getVisibleVehicles(): Promise<VehicleState[]> {
+    return await this.vehicleTracker.getVisibleVehicles();
   }
 
   /**

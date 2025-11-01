@@ -104,10 +104,13 @@ export default function DashboardOverview() {
       console.log(`🔄 Device changed from ${deviceKey} to ${selectedDevice.id}, forcing complete refresh...`);
 
       // Use setTimeout to avoid setState in effect
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         setDeviceKey(selectedDevice.id);
         setDashboardData(null); // Clear existing data
       }, 0);
+
+      // Cleanup timeout to prevent memory leak
+      return () => clearTimeout(timeoutId);
     }
   }, [selectedDevice.id, deviceKey]);
 

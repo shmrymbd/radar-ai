@@ -36,8 +36,14 @@ check_prerequisites() {
         exit 1
     fi
 
-    # Check Docker Compose
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+    # Check Docker Compose and set command (try modern first, then legacy)
+    if docker compose version &> /dev/null; then
+        DOCKER_COMPOSE="docker compose"
+        log_info "Using: docker compose (modern)"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+        log_info "Using: docker-compose (legacy)"
+    else
         log_error "Docker Compose not found. Please install Docker Compose first."
         exit 1
     fi
@@ -79,14 +85,14 @@ start_services() {
     log_info "Starting PassData Stream Processor..."
 
     # Build and start
-    docker-compose -f $COMPOSE_FILE build
-    docker-compose -f $COMPOSE_FILE up -d
+    $DOCKER_COMPOSE -f $COMPOSE_FILE build
+    $DOCKER_COMPOSE -f $COMPOSE_FILE up -d
 
     log_info "Waiting for services to be healthy..."
     sleep 5
 
     # Check health
-    if docker-compose -f $COMPOSE_FILE ps | grep -q "unhealthy"; then
+    if $DOCKER_COMPOSE -f $COMPOSE_FILE ps | grep -q "unhealthy"; then
         log_error "Some services are unhealthy. Check logs with: ./deploy-stream-processor.sh logs"
         exit 1
     fi
@@ -97,7 +103,7 @@ start_services() {
 
 stop_services() {
     log_info "Stopping PassData Stream Processor..."
-    docker-compose -f $COMPOSE_FILE down
+    $DOCKER_COMPOSE -f $COMPOSE_FILE down
     log_info "Stream processor stopped"
 }
 
@@ -111,15 +117,15 @@ restart_services() {
 show_logs() {
     SERVICE=${1:-}
     if [ -z "$SERVICE" ]; then
-        docker-compose -f $COMPOSE_FILE logs -f
+        $DOCKER_COMPOSE -f $COMPOSE_FILE logs -f
     else
-        docker-compose -f $COMPOSE_FILE logs -f $SERVICE
+        $DOCKER_COMPOSE -f $COMPOSE_FILE logs -f $SERVICE
     fi
 }
 
 show_status() {
     log_info "Service Status:"
-    docker-compose -f $COMPOSE_FILE ps
+    $DOCKER_COMPOSE -f $COMPOSE_FILE ps
 
     echo ""
     log_info "Redis Stream Stats:"
@@ -154,7 +160,7 @@ validate_deployment() {
     log_info "Validating deployment..."
 
     # Check services are running
-    if ! docker-compose -f $COMPOSE_FILE ps | grep -q "Up"; then
+    if ! $DOCKER_COMPOSE -f $COMPOSE_FILE ps | grep -q "Up"; then
         log_error "Services are not running"
         return 1
     fi

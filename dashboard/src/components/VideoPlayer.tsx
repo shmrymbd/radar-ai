@@ -102,24 +102,25 @@ export default function VideoPlayer({ cameraId, cameraName, onError }: VideoPlay
         if (Hls.isSupported()) {
           const hls = new Hls({
             enableWorker: true,
-            lowLatencyMode: false, // Disable for stability with larger buffers
-            backBufferLength: 10, // Reduced from 90 to prevent memory issues
-            // Increase buffer to prevent stalling
-            maxBufferLength: 30, // Increased from 10 for more stability
-            maxMaxBufferLength: 60, // Increased from 20 for resilience
-            maxBufferSize: 60 * 1000 * 1000, // 60MB
-            maxBufferHole: 1.0, // Increased from 0.5 for tolerance
-            // Sync with live edge
-            liveSyncDurationCount: 3,
-            liveMaxLatencyDurationCount: 10, // Increased from 5 for stability
+            // LOW LATENCY MODE - Optimized for real-time traffic monitoring
+            lowLatencyMode: true, // Enable low latency optimizations
+            backBufferLength: 10, // Keep 10s of back buffer for seeking
+            // Minimize buffer for low latency (trade-off: less resilience to network issues)
+            maxBufferLength: 4, // Reduced from 30 to 4 seconds for low latency
+            maxMaxBufferLength: 6, // Reduced from 60 to 6 seconds max
+            maxBufferSize: 10 * 1000 * 1000, // Reduced from 60MB to 10MB
+            maxBufferHole: 0.5, // Reduced from 1.0 for tighter buffering
+            // Sync very close to live edge for minimal latency
+            liveSyncDurationCount: 1, // Reduced from 3 - stay 1 segment behind live edge
+            liveMaxLatencyDurationCount: 3, // Reduced from 10 - max 3 segments latency
             // Better error recovery with more retries
-            manifestLoadingMaxRetry: 6, // Increased from 3
+            manifestLoadingMaxRetry: 6,
             manifestLoadingRetryDelay: 500,
-            levelLoadingMaxRetry: 6, // Increased from 3
-            fragLoadingMaxRetry: 6, // Increased from 3
+            levelLoadingMaxRetry: 6,
+            fragLoadingMaxRetry: 6,
             fragLoadingTimeOut: 10000, // 10 second timeout
             // Handle append errors gracefully (critical for Firefox)
-            appendErrorMaxRetry: 5, // Increased from 3 for Firefox
+            appendErrorMaxRetry: 5,
             // Prefetch for smoother playback
             startFragPrefetch: true,
             // Debug mode off to reduce console noise

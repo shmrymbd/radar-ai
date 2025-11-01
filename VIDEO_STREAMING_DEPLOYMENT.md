@@ -42,10 +42,9 @@ This guide provides detailed instructions for deploying the video streaming syst
 
 #### 1.1 Setup Docker Compose
 
-```bash
-# Create docker-compose.video.yml
-version: '3.8'
+Create `docker-compose.video.yml`:
 
+```yaml
 services:
   nginx:
     image: nginx:alpine
@@ -79,8 +78,11 @@ networks:
 #### 1.2 Start Services
 
 ```bash
-# Start video streaming services
-docker-compose -f docker-compose.video.yml up -d
+# Start video streaming services (modern Docker Compose)
+docker compose -f docker-compose.video.yml up -d
+
+# Or use the startup script (auto-detects version)
+./start-video-streaming.sh
 
 # Verify services are running
 docker ps

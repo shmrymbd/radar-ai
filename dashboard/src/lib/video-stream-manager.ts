@@ -22,6 +22,8 @@ export interface ActiveStream {
   outputDir: string;
   startTime: Date;
   isActive: boolean;
+  usageCount: number; // Number of connected viewers
+  lastAccessTime: Date; // Last time stream was accessed
 }
 
 class VideoStreamManager {
@@ -49,16 +51,30 @@ class VideoStreamManager {
   public async startStream(config: StreamConfig): Promise<{ streamId: string; hlsUrl: string }> {
     const { cameraId, rtspUrl, username, password } = config;
 
-    // Check if stream already exists for this camera
+    // Check if stream already exists for this camera (deduplication)
     const existingStream = Array.from(this.activeStreams.values())
       .find(stream => stream.cameraId === cameraId && stream.isActive);
 
     if (existingStream) {
-      console.log(`Stream already active for camera ${cameraId}`);
-      return {
-        streamId: existingStream.streamId,
-        hlsUrl: `/api/video/hls/${path.basename(existingStream.outputDir)}/playlist.m3u8`
-      };
+      // Stream exists - check if it's healthy before reusing
+      const isHealthy = await this.checkStreamHealth(existingStream);
+
+      if (isHealthy) {
+        console.log(`♻️ Reusing existing stream for camera ${cameraId} (usage: ${existingStream.usageCount} → ${existingStream.usageCount + 1})`);
+
+        // Increment usage count and update last access time
+        existingStream.usageCount++;
+        existingStream.lastAccessTime = new Date();
+
+        return {
+          streamId: existingStream.streamId,
+          hlsUrl: `/api/video/hls/${path.basename(existingStream.outputDir)}/playlist.m3u8`
+        };
+      } else {
+        console.warn(`⚠️ Existing stream for camera ${cameraId} is unhealthy, creating new stream`);
+        // Stop unhealthy stream and create a new one
+        await this.stopStream(existingStream.streamId);
+      }
     }
 
     // Create stream ID and output directory
@@ -84,33 +100,39 @@ class VideoStreamManager {
     console.log(`📹 RTSP URL: ${rtspUrl.replace(/\/\/(.*?)@/, '//<credentials>@')}`);
     console.log(`📁 Output: ${outputDir}`);
 
-    // FFmpeg arguments for 1-second latency HLS with browser compatibility
+    // FFmpeg arguments for 1-second latency HLS with CBR and stable buffering
     const ffmpegArgs = [
       '-rtsp_transport', 'tcp',
       '-analyzeduration', '1000000',
       '-probesize', '1000000',
       '-i', fullRtspUrl,
-      // Video encoding for maximum browser compatibility
+      // Video encoding with Constant Bitrate (CBR) for consistent segment sizes
       '-c:v', 'libx264',
       '-profile:v', 'baseline', // Baseline profile for maximum compatibility
       '-level', '3.0',
       '-preset', 'ultrafast',
       '-tune', 'zerolatency',
       '-pix_fmt', 'yuv420p', // Ensure proper pixel format
+      // CBR configuration for 1080p quality (predictable segment sizes)
+      '-b:v', '2M', // Target bitrate: 2 Mbps
+      '-maxrate', '2.2M', // Maximum bitrate: 2.2 Mbps (10% tolerance)
+      '-bufsize', '4M', // VBV buffer size: 4 MB (2× bitrate for stability)
       // Audio encoding
       '-c:a', 'aac',
       '-b:a', '128k',
       '-ar', '44100', // Standard audio sample rate
-      // HLS output format
+      // Forced keyframes every 1 second for exact segment boundaries
+      '-force_key_frames', 'expr:gte(t,n_forced*1)',
+      // HLS output format optimized for LOW LATENCY
       '-f', 'hls',
       '-hls_time', '1', // 1-second segments for stable buffering
-      '-hls_list_size', '5', // Keep 5 segments for better buffering
+      '-hls_list_size', '3', // Reduced to 3 segments for ~3-second latency (was 10)
       '-hls_flags', 'delete_segments+independent_segments',
       '-hls_segment_type', 'mpegts',
       '-hls_segment_filename', path.join(outputDir, 'segment_%03d.ts'),
-      // Keyframe settings for better seeking
-      '-g', '15',
-      '-keyint_min', '15',
+      // Keyframe settings aligned with forced keyframes (30fps assumption)
+      '-g', '30', // GOP size: 30 frames (1 second at 30fps)
+      '-keyint_min', '30', // Minimum keyframe interval
       '-sc_threshold', '0', // Disable scene change detection
       // Timing and sync
       '-fflags', '+genpts+nobuffer+flush_packets',
@@ -146,7 +168,9 @@ class VideoStreamManager {
       process: ffmpegProcess,
       outputDir,
       startTime: new Date(),
-      isActive: true
+      isActive: true,
+      usageCount: 1, // Initial viewer
+      lastAccessTime: new Date()
     };
 
     this.activeStreams.set(streamId, activeStream);
@@ -263,6 +287,69 @@ class VideoStreamManager {
    */
   public getStream(streamId: string): ActiveStream | undefined {
     return this.activeStreams.get(streamId);
+  }
+
+  /**
+   * Check stream health (for deduplication)
+   */
+  private async checkStreamHealth(stream: ActiveStream): Promise<boolean> {
+    try {
+      // Check 1: FFmpeg process is alive
+      if (!stream.process || stream.process.killed) {
+        return false;
+      }
+
+      // Check 2: Playlist file exists and is recent (updated within last 10 seconds)
+      const playlistPath = path.join(stream.outputDir, 'playlist.m3u8');
+      if (!fs.existsSync(playlistPath)) {
+        return false;
+      }
+
+      const stats = fs.statSync(playlistPath);
+      const ageMs = Date.now() - stats.mtimeMs;
+      if (ageMs > 10000) { // 10 seconds
+        console.warn(`⚠️ Playlist age ${(ageMs / 1000).toFixed(1)}s exceeds 10s threshold`);
+        return false;
+      }
+
+      // Check 3: At least one segment exists
+      const files = fs.readdirSync(stream.outputDir);
+      const segments = files.filter(f => f.endsWith('.ts'));
+      if (segments.length === 0) {
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error checking stream health:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Decrease usage count (called when viewer disconnects)
+   */
+  public decreaseUsageCount(streamId: string): void {
+    const stream = this.activeStreams.get(streamId);
+    if (stream && stream.usageCount > 0) {
+      stream.usageCount--;
+      console.log(`📉 Usage count decreased for stream ${streamId}: ${stream.usageCount + 1} → ${stream.usageCount}`);
+
+      // If no more viewers, mark for potential cleanup (but don't stop immediately - grace period)
+      if (stream.usageCount === 0) {
+        console.log(`👀 Stream ${streamId} has no viewers, will be cleaned up if unused for 2 hours`);
+      }
+    }
+  }
+
+  /**
+   * Update last access time (called when playlist/segments are accessed)
+   */
+  public updateLastAccessTime(streamId: string): void {
+    const stream = this.activeStreams.get(streamId);
+    if (stream) {
+      stream.lastAccessTime = new Date();
+    }
   }
 
   /**
