@@ -58,8 +58,8 @@ describe('WebSocket Server Integration', () => {
 
   describe('Rate Limiting', () => {
     it('should define rate limit constants', () => {
-      const maxMessagesPerMinute = 100;
-      expect(maxMessagesPerMinute).toBe(100);
+      const maxMessagesPerMinute = 1000;
+      expect(maxMessagesPerMinute).toBe(1000);
       expect(maxMessagesPerMinute).toBeGreaterThan(0);
     });
   });
