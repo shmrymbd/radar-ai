@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
   // Apply authentication and stricter export rate limiting
-  const protection = withApiProtection(request, true); // true = use export rate limiter
+  const protection = await withApiProtection(request, true); // true = use export rate limiter
   if (!protection.ok) {
     const duration = Date.now() - startTime;
     monitor.recordRequest('/api/classification/export', 'GET', duration, protection.response!.status, { error: true });
@@ -51,14 +51,27 @@ export async function GET(request: NextRequest) {
     // Create time filter based on period
     const timeFilter = createTimeFilter(timePeriod);
 
+    // Map timePeriod to expected format ('hourly' | 'daily' | 'weekly' | 'monthly')
+    // Note: getHistoricalChartData is deprecated, but we'll use it for compatibility
+    let periodType: 'hourly' | 'daily' | 'weekly' | 'monthly' = 'daily';
+    if (timePeriod.includes('hour') || timePeriod === '1hr' || timePeriod === '24hrs') {
+      periodType = 'hourly';
+    } else if (timePeriod.includes('day') || timePeriod === '7days' || timePeriod === '30days') {
+      periodType = 'daily';
+    } else if (timePeriod.includes('week')) {
+      periodType = 'weekly';
+    } else if (timePeriod.includes('month')) {
+      periodType = 'monthly';
+    }
+
     // Get all historical data (no pagination for export)
+    // Note: getHistoricalChartData returns an array directly, not an object with data property
     const result = await classificationProcessor.getHistoricalChartData(
       deviceId,
-      timeFilter,
-      { limit: 10000 } // Large limit for export
+      periodType
     );
 
-    if (!result.data || result.data.length === 0) {
+    if (!result || result.length === 0) {
       return NextResponse.json(
         {
           success: false,
@@ -71,7 +84,7 @@ export async function GET(request: NextRequest) {
 
     // Export based on format
     if (format === 'csv') {
-      const csv = convertToCSV(result.data);
+      const csv = convertToCSV(result);
       const filename = `classification-${deviceId}-${timePeriod}-${new Date().toISOString().slice(0, 10)}.csv`;
 
       const duration = Date.now() - startTime;
@@ -82,7 +95,7 @@ export async function GET(request: NextRequest) {
           'Content-Type': 'text/csv',
           'Content-Disposition': `attachment; filename="${filename}"`,
           'X-Response-Time': `${duration}ms`,
-          'X-Records-Exported': result.data.length.toString()
+          'X-Records-Exported': result.length.toString()
         },
       });
     } else {
@@ -92,8 +105,8 @@ export async function GET(request: NextRequest) {
         deviceId,
         timePeriod,
         exportDate: new Date().toISOString(),
-        totalRecords: result.data.length,
-        data: result.data
+        totalRecords: result.length,
+        data: result
       }, null, 2);
 
       const duration = Date.now() - startTime;
@@ -104,7 +117,7 @@ export async function GET(request: NextRequest) {
           'Content-Type': 'application/json',
           'Content-Disposition': `attachment; filename="${filename}"`,
           'X-Response-Time': `${duration}ms`,
-          'X-Records-Exported': result.data.length.toString()
+          'X-Records-Exported': result.length.toString()
         },
       });
     }

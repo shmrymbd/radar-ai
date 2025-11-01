@@ -161,7 +161,7 @@ export default function Dashboard() {
                 onRefresh={fetchCameras}
               />
             )}
-            {videoSubTab === 'recordings' && <VideoRecordings />}
+            {videoSubTab === 'recordings' && <VideoRecordings recordings={[]} onRefresh={() => {}} />}
           </div>
         );
       case 'settings':

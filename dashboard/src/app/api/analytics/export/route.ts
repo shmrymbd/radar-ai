@@ -250,10 +250,12 @@ function generateExcelResponse(exportData: any): NextResponse {
   XLSX.utils.book_append_sheet(workbook, summarySheet, 'Summary');
 
   // Sheet 2: Vehicle Type Distribution
-  const vehicleTypeData = [['Vehicle Type', 'Count', 'Percentage']];
-  Object.entries(summary.vehicleTypeCounts || {}).forEach(([type, count]) => {
-    const percentage = summary.totalVehicles > 0 ? ((count as number) / summary.totalVehicles) * 100 : 0;
-    vehicleTypeData.push([type, count as number, `${percentage.toFixed(2)}%`]);
+  const vehicleTypeData: (string | number)[][] = [['Vehicle Type', 'Count', 'Percentage']];
+  (summary.trafficComposition || []).forEach((item: any) => {
+    const vehicleType = item.vehicleType || item.type || 'unknown';
+    const count = item.count || 0;
+    const percentage = item.percentage || (summary.totalVehicles > 0 ? (count / summary.totalVehicles) * 100 : 0);
+    vehicleTypeData.push([vehicleType, count, `${percentage.toFixed(2)}%`]);
   });
   const vehicleTypeSheet = XLSX.utils.aoa_to_sheet(vehicleTypeData);
   XLSX.utils.book_append_sheet(workbook, vehicleTypeSheet, 'Vehicle Types');

@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useRef, useState, useEffect, ReactNode } from 'react';
 import { useDevice } from './DeviceContext';
 import { useUnifiedWebSocket } from '@/hooks/useUnifiedWebSocket';
+import { LaneStatusData } from '@/types/lane';
 
 export interface VehiclePosition {
   targetId: string;
@@ -18,29 +19,6 @@ export interface VehiclePosition {
   xSpeed?: number;
   ySpeed?: number;
   acceleration?: number;
-}
-
-export interface LaneStatusData {
-  lane: {
-    number: number;
-    status: number;
-  };
-  queue: {
-    length: number;
-    vehicles: number;
-  };
-  occupancy: {
-    space: number;
-    time: number;
-  };
-  speed: {
-    average: number;
-    percentile85: number;
-  };
-  flow: {
-    rate: number;
-  };
-  timestamp: Date;
 }
 
 interface ControlCenterContextType {
@@ -170,28 +148,32 @@ export function ControlCenterProvider({ children }: ControlCenterProviderProps) 
 
         // Process tracking data (vehicle positions)
         if ((data.type === 'tracking_data' || data.type === 'tracking_update') &&
-            data.deviceId === selectedDevice.id &&
-            data.data?.vehicles) {
+            data.deviceId === selectedDevice.id) {
+          
+          // Handle different data structures: data.data.vehicles or data.data.data.vehicles
+          let vehiclesData = data.data?.vehicles || data.data?.data?.vehicles;
+          
+          if (vehiclesData && Array.isArray(vehiclesData)) {
+            const incomingVehicles: VehiclePosition[] = vehiclesData.map((v: any) => ({
+              targetId: v.targetId,
+              x: v.x,
+              y: v.y,
+              speed: v.speed,
+              vehicleType: v.vehicleType,
+              laneNo: v.laneNo,
+              timestamp: v.timestamp instanceof Date ? v.timestamp : new Date(v.timestamp || Date.now()),
+              length: v.length || 4.5,
+              width: v.width || 1.8,
+              height: v.height || 1.5,
+              xSpeed: v.xSpeed || 0,
+              ySpeed: v.ySpeed || 0,
+              acceleration: v.acceleration || 0
+            }));
 
-          const incomingVehicles: VehiclePosition[] = data.data.vehicles.map((v: any) => ({
-            targetId: v.targetId,
-            x: v.x,
-            y: v.y,
-            speed: v.speed,
-            vehicleType: v.vehicleType,
-            laneNo: v.laneNo,
-            timestamp: new Date(),
-            length: v.length || 4.5,
-            width: v.width || 1.8,
-            height: v.height || 1.5,
-            xSpeed: v.xSpeed || 0,
-            ySpeed: v.ySpeed || 0,
-            acceleration: v.acceleration || 0
-          }));
-
-          setVehicles(incomingVehicles);
-          vehiclesRef.current = incomingVehicles;
-          console.log(`✅ Control Center: Updated ${incomingVehicles.length} vehicles via WebSocket`);
+            setVehicles(incomingVehicles);
+            vehiclesRef.current = incomingVehicles;
+            console.log(`✅ Control Center: Updated ${incomingVehicles.length} vehicles via WebSocket`);
+          }
         }
       } catch (error) {
         console.error('❌ Control Center: Error parsing WebSocket message:', error);
@@ -201,6 +183,58 @@ export function ControlCenterProvider({ children }: ControlCenterProviderProps) 
     ws.addEventListener('message', handleMessage);
     return () => ws.removeEventListener('message', handleMessage);
   }, [ws, selectedDevice.id]);
+
+  // Fetch initial tracking data from API when component mounts or device changes
+  useEffect(() => {
+    const fetchInitialTrackingData = async () => {
+      try {
+        console.log('📡 Control Center: Fetching initial tracking data from API...');
+        const response = await fetch(`/api/tracking?device=${selectedDevice.id}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch tracking data');
+        }
+        const result = await response.json();
+
+        if (result.success && result.data && result.data.vehicles) {
+          const initialVehicles: VehiclePosition[] = result.data.vehicles.map((v: any) => {
+            // Handle timestamp conversion
+            let timestamp: Date;
+            if (v.timestamp instanceof Date) {
+              timestamp = v.timestamp;
+            } else if (v.timestamp) {
+              timestamp = new Date(v.timestamp);
+            } else {
+              timestamp = new Date();
+            }
+
+            return {
+              targetId: v.targetId,
+              x: v.x || 0,
+              y: v.y || 0,
+              speed: v.speed || 0,
+              vehicleType: v.vehicleType,
+              laneNo: v.laneNo,
+              timestamp,
+              length: v.length || 4.5,
+              width: v.width || 1.8,
+              height: v.height || 1.5,
+              xSpeed: v.xSpeed || 0,
+              ySpeed: v.ySpeed || 0,
+              acceleration: v.acceleration || 0
+            };
+          });
+
+          setVehicles(initialVehicles);
+          vehiclesRef.current = initialVehicles;
+          console.log(`✅ Control Center: Loaded ${initialVehicles.length} vehicles from API`);
+        }
+      } catch (error) {
+        console.error('❌ Control Center: Error fetching initial tracking data:', error);
+      }
+    };
+
+    fetchInitialTrackingData();
+  }, [selectedDevice.id]);
 
   // Poll lane status data every 5 seconds (fallback when WebSocket disconnected)
   useEffect(() => {

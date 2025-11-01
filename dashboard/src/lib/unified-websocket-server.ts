@@ -2,11 +2,44 @@
 // Using require for dotenv in ts-node context
 try {
   const dotenv = require('dotenv');
-  const { resolve } = require('path');
-  dotenv.config({ path: resolve(__dirname, '../../.env.local') });
+  const { join } = require('path');
+  const { existsSync } = require('fs');
+  
+  // Try multiple paths to find .env.local
+  // 1. Dashboard directory (where npm script runs from)
+  const cwd = process.cwd();
+  const pathsToTry = [
+    join(cwd, '.env.local'),
+    join(cwd, 'dashboard', '.env.local'),
+    join(__dirname, '../../.env.local'),
+    join(__dirname, '../../../dashboard/.env.local')
+  ];
+  
+  let envPath: string | null = null;
+  for (const path of pathsToTry) {
+    if (existsSync(path)) {
+      envPath = path;
+      break;
+    }
+  }
+  
+  if (envPath) {
+    const result = dotenv.config({ path: envPath });
+    if (result.error) {
+      console.warn('⚠️ Failed to load .env.local:', result.error.message);
+      console.warn(`   Tried path: ${envPath}`);
+    } else if (result.parsed) {
+      console.log(`✅ Loaded ${Object.keys(result.parsed).length} environment variables from ${envPath}`);
+    }
+  } else {
+    console.warn('⚠️ .env.local not found in any of these locations:');
+    pathsToTry.forEach(p => console.warn(`   - ${p}`));
+    console.warn('   Using process.env directly (may be incomplete)');
+  }
 } catch (e) {
   // dotenv is optional if environment variables are already set
-  console.warn('dotenv not available, using process.env directly');
+  console.warn('⚠️ dotenv not available, using process.env directly');
+  console.warn('   Error:', e instanceof Error ? e.message : String(e));
 }
 
 import { WebSocketServer, WebSocket } from 'ws';

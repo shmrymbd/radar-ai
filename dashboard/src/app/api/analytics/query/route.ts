@@ -45,17 +45,16 @@ export async function POST(request: NextRequest) {
     const filteredSummary = { ...summary };
 
     // Filter by vehicle type if specified
-    if (filter.vehicleTypes && filter.vehicleTypes.length > 0 && summary.vehicleTypeCounts) {
-      const filteredTypeCounts: any = {};
-      filter.vehicleTypes.forEach(type => {
-        if (summary.vehicleTypeCounts && summary.vehicleTypeCounts[type]) {
-          filteredTypeCounts[type] = summary.vehicleTypeCounts[type];
-        }
+    if (filter.vehicleTypes && filter.vehicleTypes.length > 0 && summary.trafficComposition) {
+      const filteredComposition = summary.trafficComposition.filter((item: any) => {
+        const vehicleType = item.vehicleType || item.type;
+        return filter.vehicleTypes!.includes(vehicleType);
       });
-      filteredSummary.vehicleTypeCounts = filteredTypeCounts;
+
+      filteredSummary.trafficComposition = filteredComposition;
 
       // Recalculate total vehicles
-      filteredSummary.totalVehicles = Object.values(filteredTypeCounts).reduce((sum: number, count: any) => sum + count, 0);
+      filteredSummary.totalVehicles = filteredComposition.reduce((sum: number, item: any) => sum + (item.count || 0), 0);
     }
 
     return NextResponse.json({

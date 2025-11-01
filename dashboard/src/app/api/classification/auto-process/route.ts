@@ -64,9 +64,10 @@ export async function POST() {
       }
     }
 
-    // Get updated metrics
-    const metrics = classificationProcessor.getClassificationMetrics();
-    const summary = classificationProcessor.getClassificationSummary();
+    // Get updated metrics (use deviceId from first event or default to P1-center)
+    const deviceId = recentEvents[0]?.deviceId || 'P1-center';
+    const metrics = classificationProcessor.getClassificationMetrics(deviceId);
+    const summary = classificationProcessor.getClassificationSummary(deviceId);
 
     console.log(`🎯 Auto-processed ${processedCount} new vehicles. Total: ${metrics.totalVehicles}`);
 
