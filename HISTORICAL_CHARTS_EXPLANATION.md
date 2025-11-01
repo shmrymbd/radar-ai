@@ -238,7 +238,7 @@ HistoricalCharts.tsx
 ### Common Issues
 
 1. **No data displayed**
-   - Check MongoDB connection (192.168.1.71:27017)
+   - Check MongoDB connection (192.168.6.22:27017)
    - Verify device ID matches Redis key (`{deviceId}/passdata`)
    - Ensure PassData subscriber is running
 

@@ -50,11 +50,11 @@ node check-recent-passdata.js
 
 ```bash
 # Test Redis
-redis-cli -h 192.168.1.71 -p 6379 ping
+redis-cli -h 192.168.6.22 -p 6379 ping
 # Expected: PONG
 
 # Test MongoDB
-mongosh "mongodb://admin:admin123@192.168.1.71:27017/?authSource=admin"
+mongosh "mongodb://admin:admin123@192.168.6.22:27017/?authSource=admin"
 # Expected: Connection successful
 ```
 
@@ -78,7 +78,7 @@ curl "http://localhost:3000/api/lanes?deviceId=P1-center"
 
 ```bash
 # Connect to Redis
-redis-cli -h 192.168.1.71 -p 6379
+redis-cli -h 192.168.6.22 -p 6379
 
 # List all keys
 KEYS *
@@ -103,7 +103,7 @@ DEL P1-center/passdata
 
 ```bash
 # Connect to MongoDB
-mongosh "mongodb://admin:admin123@192.168.1.71:27017/traffic_signal_dashboard?authSource=admin"
+mongosh "mongodb://admin:admin123@192.168.6.22:27017/traffic_signal_dashboard?authSource=admin"
 
 # Count documents
 db.passData.countDocuments()
@@ -146,10 +146,10 @@ PORT=3001 npm run dev
 
 ```bash
 # Check Redis is running
-redis-cli -h 192.168.1.71 -p 6379 ping
+redis-cli -h 192.168.6.22 -p 6379 ping
 
 # Check firewall
-telnet 192.168.1.71 6379
+telnet 192.168.6.22 6379
 
 # Verify .env.local settings
 cat dashboard/.env.local | grep REDIS
@@ -159,7 +159,7 @@ cat dashboard/.env.local | grep REDIS
 
 ```bash
 # Test connection
-mongosh "mongodb://admin:admin123@192.168.1.71:27017/?authSource=admin"
+mongosh "mongodb://admin:admin123@192.168.6.22:27017/?authSource=admin"
 
 # Verify credentials in .env.local
 cat dashboard/.env.local | grep MONGODB
@@ -169,7 +169,7 @@ cat dashboard/.env.local | grep MONGODB
 
 ```bash
 # Check Redis keys
-redis-cli -h 192.168.1.71 -p 6379 KEYS *passdata
+redis-cli -h 192.168.6.22 -p 6379 KEYS *passdata
 
 # Check MongoDB data
 node dashboard/check-mongodb-latest.js
@@ -217,11 +217,11 @@ npx tsc --noEmit --skipLibCheck
 
 ```env
 # Redis (Required)
-REDIS_HOST=192.168.1.71
+REDIS_HOST=192.168.6.22
 REDIS_PORT=6379
 
 # MongoDB (Required)
-MONGODB_HOST=192.168.1.71
+MONGODB_HOST=192.168.6.22
 MONGODB_PORT=27017
 MONGODB_USERNAME=admin
 MONGODB_PASSWORD=admin123

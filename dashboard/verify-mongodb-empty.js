@@ -7,7 +7,7 @@
 const { MongoClient } = require('mongodb');
 require('dotenv').config({ path: '.env.local' });
 
-const MONGODB_HOST = process.env.MONGODB_HOST || '192.168.1.71';
+const MONGODB_HOST = process.env.MONGODB_HOST || '192.168.6.22';
 const MONGODB_PORT = process.env.MONGODB_PORT || '27017';
 const MONGODB_USERNAME = process.env.MONGODB_USERNAME || 'admin';
 const MONGODB_PASSWORD = process.env.MONGODB_PASSWORD || 'admin123';

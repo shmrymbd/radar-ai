@@ -37,7 +37,7 @@ npm test vehicle-tracking-ttl.test.ts
 Integration tests use actual Redis and are located in `test-vehicle-tracking-ttl.js`.
 
 **Prerequisites:**
-- Redis server accessible at `REDIS_HOST:REDIS_PORT` (default: 192.168.1.71:6379)
+- Redis server accessible at `REDIS_HOST:REDIS_PORT` (default: 192.168.6.22:6379)
 - Node.js with `redis` package installed
 
 **Run integration tests:**
@@ -90,7 +90,7 @@ For production validation, monitor the following metrics:
 
 Check Set size periodically:
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 SCARD "P1-center/tracking/vehicle_ids"
+redis-cli -h 192.168.6.22 -p 6379 SCARD "P1-center/tracking/vehicle_ids"
 ```
 
 Expected: 20-50 IDs in digital twin mode, 5-10 IDs in real-time mode
@@ -117,7 +117,7 @@ Expected: > 95% hit rate after stabilization
 
 Track Redis memory over 24 hours:
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 INFO memory | grep used_memory_human
+redis-cli -h 192.168.6.22 -p 6379 INFO memory | grep used_memory_human
 ```
 
 Expected: Stable memory usage (no unbounded growth)
@@ -128,14 +128,14 @@ Expected: Stable memory usage (no unbounded growth)
 
 1. Add vehicle to Set without state key:
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 SADD "test-device/tracking/vehicle_ids" "orphan-v1"
+redis-cli -h 192.168.6.22 -p 6379 SADD "test-device/tracking/vehicle_ids" "orphan-v1"
 ```
 
 2. Run cleanup (via API or wait for periodic cleanup)
 
 3. Verify ID is removed:
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 SMEMBERS "test-device/tracking/vehicle_ids"
+redis-cli -h 192.168.6.22 -p 6379 SMEMBERS "test-device/tracking/vehicle_ids"
 ```
 
 Expected: `orphan-v1` should be removed
@@ -144,15 +144,15 @@ Expected: `orphan-v1` should be removed
 
 1. Add vehicle state:
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 SADD "test-device/tracking/vehicle_ids" "test-v1"
-redis-cli -h 192.168.1.71 -p 6379 HSET "test-device/tracking/vehicle/test-v1" targetId "test-v1"
-redis-cli -h 192.168.1.71 -p 6379 EXPIRE "test-device/tracking/vehicle/test-v1" 300
+redis-cli -h 192.168.6.22 -p 6379 SADD "test-device/tracking/vehicle_ids" "test-v1"
+redis-cli -h 192.168.6.22 -p 6379 HSET "test-device/tracking/vehicle/test-v1" targetId "test-v1"
+redis-cli -h 192.168.6.22 -p 6379 EXPIRE "test-device/tracking/vehicle/test-v1" 300
 ```
 
 2. Check TTLs:
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 TTL "test-device/tracking/vehicle_ids"
-redis-cli -h 192.168.1.71 -p 6379 TTL "test-device/tracking/vehicle/test-v1"
+redis-cli -h 192.168.6.22 -p 6379 TTL "test-device/tracking/vehicle_ids"
+redis-cli -h 192.168.6.22 -p 6379 TTL "test-device/tracking/vehicle/test-v1"
 ```
 
 Expected:
@@ -182,7 +182,7 @@ npm install --save-dev @types/jest @types/node
 **Issue:** Cannot connect to Redis
 
 **Solution:**
-- Verify Redis is running: `redis-cli -h 192.168.1.71 -p 6379 ping`
+- Verify Redis is running: `redis-cli -h 192.168.6.22 -p 6379 ping`
 - Check firewall settings
 - Update REDIS_HOST and REDIS_PORT environment variables
 
@@ -191,7 +191,7 @@ npm install --save-dev @types/jest @types/node
 **Solution:**
 - Manually clean up test keys:
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 --scan --pattern "test-ttl-fix/*" | xargs redis-cli -h 192.168.1.71 -p 6379 DEL
+redis-cli -h 192.168.6.22 -p 6379 --scan --pattern "test-ttl-fix/*" | xargs redis-cli -h 192.168.6.22 -p 6379 DEL
 ```
 
 ### Performance Issues

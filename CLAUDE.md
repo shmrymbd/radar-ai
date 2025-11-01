@@ -72,7 +72,7 @@ npm run db:indexes     # Create/update MongoDB indexes for optimal performance
 ### Testing & Verification
 ```bash
 # Quick Tests
-redis-cli -h 192.168.1.71 -p 6379 ping     # Verify Redis connectivity
+redis-cli -h 192.168.6.22 -p 6379 ping     # Verify Redis connectivity
 curl "http://localhost:3000/api/simple-redis?device=P1-center"  # Test API
 
 # Data Verification
@@ -177,7 +177,7 @@ const fetchData = useCallback(async () => {
 
 ## Common Gotchas
 
-1. **IP Addresses**: Redis/MongoDB are at 192.168.1.71 (updated 2025-10-28)
+1. **IP Addresses**: Redis/MongoDB are at 192.168.6.22 (updated 2025-10-28)
 2. **Redis key case sensitivity** (must be lowercase)
 3. **Device selection** requires full WebSocket reconnect
 4. **ClassificationProcessor methods** are deprecated
@@ -222,4 +222,4 @@ Skip proposal for bug fixes and non-breaking changes.
    - MongoDB: Connection pooling + retry logic
    - Redis: Singleton pattern + reconnection
    - Always use HTTPS in production
-- redis and mongodb ip change to 192.168.1.71
+- redis and mongodb ip change to 192.168.6.22

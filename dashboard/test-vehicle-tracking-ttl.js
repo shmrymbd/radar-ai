@@ -14,7 +14,7 @@
 
 const { createClient } = require('redis');
 
-const REDIS_HOST = process.env.REDIS_HOST || '192.168.1.71';
+const REDIS_HOST = process.env.REDIS_HOST || '192.168.6.22';
 const REDIS_PORT = process.env.REDIS_PORT || 6379;
 const DEVICE_ID = 'test-ttl-fix';
 

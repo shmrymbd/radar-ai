@@ -96,11 +96,11 @@ Create `dashboard/.env.local` with the following content:
 
 ```env
 # Redis Configuration
-REDIS_HOST=192.168.1.71
+REDIS_HOST=192.168.6.22
 REDIS_PORT=6379
 
 # MongoDB Configuration
-MONGODB_HOST=192.168.1.71
+MONGODB_HOST=192.168.6.22
 MONGODB_PORT=27017
 MONGODB_USERNAME=admin
 MONGODB_PASSWORD=admin123
@@ -168,7 +168,7 @@ npm run dev:full
 Redis stores real-time radar data and supports pub/sub for live updates.
 
 ```env
-REDIS_HOST=192.168.1.71    # Redis server IP address
+REDIS_HOST=192.168.6.22    # Redis server IP address
 REDIS_PORT=6379            # Redis server port (default: 6379)
 ```
 
@@ -179,7 +179,7 @@ REDIS_PORT=6379            # Redis server port (default: 6379)
 
 **Validation Command:**
 ```bash
-redis-cli -h 192.168.1.71 -p 6379 ping
+redis-cli -h 192.168.6.22 -p 6379 ping
 # Expected output: PONG
 ```
 
@@ -188,7 +188,7 @@ redis-cli -h 192.168.1.71 -p 6379 ping
 MongoDB stores historical data and persistent configuration.
 
 ```env
-MONGODB_HOST=192.168.1.71              # MongoDB server IP
+MONGODB_HOST=192.168.6.22              # MongoDB server IP
 MONGODB_PORT=27017                      # MongoDB port (default: 27017)
 MONGODB_USERNAME=admin                  # Database username
 MONGODB_PASSWORD=admin123               # Database password
@@ -203,7 +203,7 @@ MONGODB_DASHBOARD_DATABASE=traffic_signal_dashboard  # App database
 
 **Validation Command:**
 ```bash
-mongosh "mongodb://admin:admin123@192.168.1.71:27017/traffic_signal_dashboard?authSource=admin"
+mongosh "mongodb://admin:admin123@192.168.6.22:27017/traffic_signal_dashboard?authSource=admin"
 ```
 
 ### Radar Configuration
@@ -246,10 +246,10 @@ After setup, verify everything is working:
 
 ```bash
 # Test Redis
-redis-cli -h 192.168.1.71 -p 6379 ping
+redis-cli -h 192.168.6.22 -p 6379 ping
 
 # Test MongoDB
-mongosh "mongodb://admin:admin123@192.168.1.71:27017/?authSource=admin"
+mongosh "mongodb://admin:admin123@192.168.6.22:27017/?authSource=admin"
 ```
 
 ### 2. Verify Data Sources
@@ -297,7 +297,7 @@ curl "http://localhost:3000/api/tracking?deviceId=P1-center"
 **Solutions:**
 1. Verify Redis is running:
    ```bash
-   redis-cli -h 192.168.1.71 -p 6379 ping
+   redis-cli -h 192.168.6.22 -p 6379 ping
    ```
 2. Check firewall rules allow port 6379
 3. Verify Redis configuration accepts remote connections (edit `redis.conf`):
@@ -311,7 +311,7 @@ curl "http://localhost:3000/api/tracking?deviceId=P1-center"
 **Solutions:**
 1. Verify credentials:
    ```bash
-   mongosh "mongodb://admin:admin123@192.168.1.71:27017/?authSource=admin"
+   mongosh "mongodb://admin:admin123@192.168.6.22:27017/?authSource=admin"
    ```
 2. Check user permissions:
    ```javascript
@@ -325,7 +325,7 @@ curl "http://localhost:3000/api/tracking?deviceId=P1-center"
 **Solutions:**
 1. Check Redis keys exist:
    ```bash
-   redis-cli -h 192.168.1.71 -p 6379
+   redis-cli -h 192.168.6.22 -p 6379
    KEYS *passdata
    ```
 2. Verify MongoDB has data:
@@ -428,7 +428,7 @@ node test-video-streaming.js
 
 ```bash
 # Connect to Redis CLI
-redis-cli -h 192.168.1.71 -p 6379
+redis-cli -h 192.168.6.22 -p 6379
 
 # List all keys
 KEYS *
@@ -447,7 +447,7 @@ DEL P1-center/passdata
 
 ```bash
 # Connect to MongoDB
-mongosh "mongodb://admin:admin123@192.168.1.71:27017/traffic_signal_dashboard?authSource=admin"
+mongosh "mongodb://admin:admin123@192.168.6.22:27017/traffic_signal_dashboard?authSource=admin"
 
 # Count passData records
 db.passData.countDocuments()
@@ -468,9 +468,9 @@ db.passData.deleteMany({})
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REDIS_HOST` | `192.168.1.71` | Redis server hostname or IP |
+| `REDIS_HOST` | `192.168.6.22` | Redis server hostname or IP |
 | `REDIS_PORT` | `6379` | Redis server port |
-| `MONGODB_HOST` | `192.168.1.71` | MongoDB server hostname or IP |
+| `MONGODB_HOST` | `192.168.6.22` | MongoDB server hostname or IP |
 | `MONGODB_PORT` | `27017` | MongoDB server port |
 | `MONGODB_USERNAME` | `admin` | MongoDB username |
 | `MONGODB_PASSWORD` | `admin123` | MongoDB password |

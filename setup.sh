@@ -70,8 +70,8 @@ fi
 # Get Redis configuration
 print_header "Redis Configuration"
 echo "Enter your Redis connection details:"
-read -p "Redis Host [192.168.1.71]: " REDIS_HOST
-REDIS_HOST=${REDIS_HOST:-192.168.1.71}
+read -p "Redis Host [192.168.6.22]: " REDIS_HOST
+REDIS_HOST=${REDIS_HOST:-192.168.6.22}
 
 read -p "Redis Port [6379]: " REDIS_PORT
 REDIS_PORT=${REDIS_PORT:-6379}
@@ -95,8 +95,8 @@ fi
 # Get MongoDB configuration
 print_header "MongoDB Configuration"
 echo "Enter your MongoDB connection details:"
-read -p "MongoDB Host [192.168.1.71]: " MONGODB_HOST
-MONGODB_HOST=${MONGODB_HOST:-192.168.1.71}
+read -p "MongoDB Host [192.168.6.22]: " MONGODB_HOST
+MONGODB_HOST=${MONGODB_HOST:-192.168.6.22}
 
 read -p "MongoDB Port [27017]: " MONGODB_PORT
 MONGODB_PORT=${MONGODB_PORT:-27017}

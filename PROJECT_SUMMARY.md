@@ -73,7 +73,7 @@ This project provides a complete traffic management solution for traffic enginee
 - **Impact**: Dashboard now loads successfully, no more ECONNREFUSED errors
 
 ### Infrastructure Updates
-- **IP Address Migration**: Updated Redis/MongoDB from 192.168.6.22 to 192.168.1.71
+- **IP Address Migration**: Updated Redis/MongoDB from 192.168.6.22 to 192.168.6.22
 - **Environment Cleanup**: Removed deprecated `REDIS_KEY_PREFIX` variable
 - **Dynamic Port Detection**: API routes now use dynamic port detection for internal calls
 - **Device Management**: P1-center is now the default device (replaced "test" device)
