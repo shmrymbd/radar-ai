@@ -43,5 +43,4 @@ Thumbs.db
 .editorconfig
 .eslintrc*
 .prettierrc*
-tsconfig.json
 jest.config.js

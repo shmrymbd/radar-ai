@@ -40,8 +40,10 @@ const logger = winston.createLogger({
   ],
 });
 
-// Add file transports in production
-if (config.isProduction) {
+// Add file transports in production (only if not in Docker)
+// Docker containers should use console-only logging
+const isDocker = process.env.DOCKER === 'true';
+if (config.isProduction && !isDocker) {
   // Error log file with rotation
   logger.add(
     new DailyRotateFile({
