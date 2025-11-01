@@ -14,7 +14,7 @@ export async function GET() {
       endDate: new Date()
     };
     
-    const historicalData = await classificationProcessor.getHistoricalData('test', timeFilter);
+    const historicalData = await classificationProcessor.getHistoricalData('test', timeFilter.startDate, timeFilter.endDate);
     const aggregatedData = await classificationProcessor.getAggregatedHistoricalData('test', timeFilter);
     
     console.log('✅ Historical data test completed');

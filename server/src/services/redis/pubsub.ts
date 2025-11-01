@@ -364,18 +364,20 @@ export class RedisPubSubService {
       return;
     }
 
-    const channel = `${deviceId}/passdata:new`;
+    // Match the pattern used in subscribeToPassData
+    const pattern = `__keyspace@0__:${deviceId}/passdata`;
 
-    if (!this.subscribedChannels.has(channel)) {
+    if (!this.subscribedChannels.has(pattern)) {
       return;
     }
 
     try {
-      await this.subscriber.unsubscribe(channel);
-      this.subscribedChannels.delete(channel);
-      logger.info('Unsubscribed from channel', { channel });
+      // Use pUnsubscribe for pattern subscriptions (pSubscribe)
+      await this.subscriber.pUnsubscribe(pattern);
+      this.subscribedChannels.delete(pattern);
+      logger.info('Unsubscribed from PassData keyspace notifications', { pattern });
     } catch (error) {
-      logger.error('Failed to unsubscribe', { channel, error });
+      logger.error('Failed to unsubscribe', { pattern, error });
     }
   }
 

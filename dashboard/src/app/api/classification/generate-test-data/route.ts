@@ -18,7 +18,7 @@ export async function POST() {
         headwayTime: 2.1,
         passingTime: new Date().toISOString(),
         occupancyDuration: 1.8,
-        occupancyStatus: 1,
+        occupancyStatus: 'entering',
         vehicleType: 'car'
       },
       {
@@ -30,7 +30,7 @@ export async function POST() {
         headwayTime: 1.8,
         passingTime: new Date().toISOString(),
         occupancyDuration: 2.2,
-        occupancyStatus: 1,
+        occupancyStatus: 'entering',
         vehicleType: 'suv'
       },
       {
@@ -42,7 +42,7 @@ export async function POST() {
         headwayTime: 3.2,
         passingTime: new Date().toISOString(),
         occupancyDuration: 2.8,
-        occupancyStatus: 1,
+        occupancyStatus: 'entering',
         vehicleType: 'truck'
       },
       {
@@ -54,7 +54,7 @@ export async function POST() {
         headwayTime: 1.2,
         passingTime: new Date().toISOString(),
         occupancyDuration: 1.1,
-        occupancyStatus: 1,
+        occupancyStatus: 'entering',
         vehicleType: 'motorcycle'
       },
       {
@@ -66,7 +66,7 @@ export async function POST() {
         headwayTime: 2.5,
         passingTime: new Date().toISOString(),
         occupancyDuration: 2.1,
-        occupancyStatus: 1,
+        occupancyStatus: 'entering',
         vehicleType: 'van'
       }
     ];

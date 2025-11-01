@@ -14,14 +14,47 @@ function ControlCenterContent() {
 
   // Convert VehiclePosition[] to VehicleState[] for RadarAnalysisCard
   const vehicleStates = useMemo((): VehicleState[] => {
-    return vehicles.map(v => ({
-      targetId: v.targetId,
-      position: v,
-      trajectory: [v],
-      isVisible: true,
-      lastSeen: v.timestamp,
-      enterTime: v.timestamp
-    }));
+    return vehicles.map(v => {
+      // Ensure timestamp is a Date object
+      const timestamp = v.timestamp && typeof v.timestamp === 'object' && 'toISOString' in v.timestamp ? v.timestamp as Date : new Date(v.timestamp || Date.now());
+      
+      return {
+        targetId: v.targetId,
+        position: {
+          targetId: v.targetId,
+          x: v.x || 0,
+          y: v.y || 0,
+          length: v.length || 4.5,
+          width: v.width || 1.8,
+          height: v.height || 1.5,
+          speed: v.speed || 0,
+          vehicleType: v.vehicleType || 'other',
+          laneNo: v.laneNo || 0,
+          timestamp,
+          xSpeed: v.xSpeed || 0,
+          ySpeed: v.ySpeed || 0,
+          acceleration: v.acceleration || 0
+        },
+        trajectory: [{
+          targetId: v.targetId,
+          x: v.x || 0,
+          y: v.y || 0,
+          length: v.length || 4.5,
+          width: v.width || 1.8,
+          height: v.height || 1.5,
+          speed: v.speed || 0,
+          vehicleType: v.vehicleType || 'other',
+          laneNo: v.laneNo || 0,
+          timestamp,
+          xSpeed: v.xSpeed || 0,
+          ySpeed: v.ySpeed || 0,
+          acceleration: v.acceleration || 0
+        }],
+        isVisible: true,
+        lastSeen: timestamp,
+        enterTime: timestamp
+      };
+    });
   }, [vehicles]);
 
   return (

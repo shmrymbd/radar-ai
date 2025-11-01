@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
     // For test device or when no Redis data, generate dynamic summary
     if (deviceId === 'test' || !dashboardSummary) {
-      dashboardSummary = await generateDynamicDashboardSummary(deviceId, requestHost);
+      dashboardSummary = await generateDynamicDashboardSummary(deviceId, requestHost) as any;
     } else {
       // For real devices with Redis data, enrich laneStatus with vehicle type breakdown
       dashboardSummary = await enrichDashboardWithVehicleBreakdown(dashboardSummary, deviceId, requestHost);

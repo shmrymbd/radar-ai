@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/DashboardLayout';
 import DashboardOverview from '@/components/DashboardOverview';
 import LiveTracking from '@/components/LiveTracking';
@@ -14,10 +15,31 @@ import { useDevice } from '@/contexts/DeviceContext';
 
 export default function Dashboard() {
   const { selectedDevice } = useDevice();
-  const [activeTab, setActiveTab] = useState('overview');
+  const searchParams = useSearchParams();
+  
+  // Read tab from URL query parameter, default to 'overview'
+  const initialTab = searchParams.get('tab') || 'overview';
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [videoSubTab, setVideoSubTab] = useState<'streams' | 'settings' | 'recordings'>('streams');
   const [cameras, setCameras] = useState<any[]>([]);
   const [camerasLoading, setCamerasLoading] = useState(false);
+
+  // Sync activeTab with URL query parameter
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl && tabFromUrl !== activeTab) {
+      setActiveTab(tabFromUrl);
+    }
+  }, [searchParams, activeTab]);
+
+  // Update URL when tab changes (without page reload)
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') !== activeTab) {
+      url.searchParams.set('tab', activeTab);
+      window.history.pushState({}, '', url.toString());
+    }
+  }, [activeTab]);
 
   // Fetch camera configuration when video streaming tab becomes active
   useEffect(() => {
@@ -139,7 +161,7 @@ export default function Dashboard() {
                 onRefresh={fetchCameras}
               />
             )}
-            {videoSubTab === 'recordings' && <VideoRecordings />}
+            {videoSubTab === 'recordings' && <VideoRecordings recordings={[]} onRefresh={() => {}} />}
           </div>
         );
       case 'settings':

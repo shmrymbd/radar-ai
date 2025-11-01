@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     // Check cache first (unless bypassed)
     const cacheKey = { page, limit, sortBy, sortOrder };
     if (!bypassCache) {
-      const cachedData = cache.get(deviceId, timePeriod, cacheKey);
+      const cachedData = cache.get<{ data: any[]; pagination: any }>(deviceId, timePeriod, cacheKey);
 
       if (cachedData) {
         const duration = Date.now() - startTime;
@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
     // If no historical data exists, aggregate from PassData on-the-fly
     if (!result.data || result.data.length === 0) {
       console.log(`📊 No historical data found for ${deviceId}, aggregating from PassData...`);
-      result = await aggregatePassDataHistorically(deviceId, timeFilter, { page, limit, sortBy, sortOrder });
+      result = await aggregatePassDataHistorically(deviceId, timeFilter, { page, limit, sortBy, sortOrder }) as any;
     }
 
     // Cache TTL based on time period:

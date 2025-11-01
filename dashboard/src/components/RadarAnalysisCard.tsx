@@ -3,36 +3,23 @@
 import { useState, useEffect } from 'react';
 import { useDevice } from '@/contexts/DeviceContext';
 import { VehicleState } from '@/types/tracking';
+import { LaneStatusData } from '@/types/lane';
 
-interface LaneStatusData {
-  lane: {
-    number: number;
-    status: number;
-  };
-  queue: {
-    length: number;
-    vehicles: number;
-    vehicleCount?: number;
-  };
-  occupancy: {
-    space: number;
-    time: number;
-  };
-  speed: {
-    average: number;
-    percentile85: number;
-  };
+interface ExtendedLaneStatusData extends LaneStatusData {
   vehicleSpacing?: number;
   vehiclesOnline?: number;
   positions?: {
     leadVehicle: number;
     trailingVehicle: number;
   };
+  queue: LaneStatusData['queue'] & {
+    vehicleCount?: number;
+  };
 }
 
 interface RadarAnalysisCardProps {
   vehicles: VehicleState[];
-  laneStatus?: LaneStatusData[];
+  laneStatus?: (ExtendedLaneStatusData | LaneStatusData)[];
   selectedScenario: number;
   onScenarioChange: (scenarioId: number) => void;
   className?: string;
@@ -118,7 +105,11 @@ export default function RadarAnalysisCard({
       const lanesWithQueues = laneStatus.filter(lane => (lane.queue?.length || 0) > 0);
 
       const totalQueueLength = lanesWithQueues.reduce((sum, lane) => sum + (lane.queue?.length || 0), 0);
-      const totalQueuedVehicles = laneStatus.reduce((sum, lane) => sum + (lane.queue?.vehicles || 0), 0);
+      const totalQueuedVehicles = laneStatus.reduce((sum, lane) => {
+        const vehicles = lane.queue?.vehicles || 0;
+        const vehicleCount = 'vehicleCount' in (lane.queue || {}) ? (lane.queue as any).vehicleCount : undefined;
+        return sum + vehicles + (vehicleCount || 0);
+      }, 0);
 
       // Calculate average only from lanes that have queues
       const avgQueueLength = lanesWithQueues.length > 0 ? totalQueueLength / lanesWithQueues.length : 0;
@@ -164,8 +155,8 @@ export default function RadarAnalysisCard({
       if (queuedLanes.length > 0) {
         queuedLanes.forEach(lane => {
           const queueLength = lane.queue?.length || 0;
-          const vehicleCount = lane.queue?.vehicleCount || lane.queue?.vehicles || 1;
-          const vehicleSpacing = lane.vehicleSpacing || 10; // Use actual spacing from Redis
+          const vehicleCount = ('vehicleCount' in (lane.queue || {}) ? (lane.queue as any).vehicleCount : undefined) || lane.queue?.vehicles || 1;
+          const vehicleSpacing = ('vehicleSpacing' in lane ? lane.vehicleSpacing : undefined) || 10; // Use actual spacing from Redis
 
           // Wait time estimation: Average vehicle is at queueLength/2 position
           // Time to clear = (queue position) / (discharge rate)
@@ -191,8 +182,8 @@ export default function RadarAnalysisCard({
       laneStatus.forEach(lane => {
         const speed = lane.speed?.average || 0; // km/h (actual measured speed)
         const queueLength = lane.queue?.length || 0;
-        const vehicleSpacing = lane.vehicleSpacing || 5; // meters (actual spacing from radar)
-        const vehiclesOnline = lane.vehiclesOnline || 0; // actual vehicles in lane
+        const vehicleSpacing = ('vehicleSpacing' in lane ? lane.vehicleSpacing : undefined) || 5; // meters (actual spacing from radar)
+        const vehiclesOnline = ('vehiclesOnline' in lane ? lane.vehiclesOnline : undefined) || 0; // actual vehicles in lane
 
         if (speed > 20 && vehicleSpacing > 0) {
           // FLOWING LANE: Use actual measured flow rate
@@ -218,8 +209,8 @@ export default function RadarAnalysisCard({
       laneStatus.forEach(lane => {
         const speed = lane.speed?.average || 0; // actual speed from radar
         const queueLength = lane.queue?.length || 0;
-        const vehicleSpacing = lane.vehicleSpacing || 5; // actual spacing
-        const vehiclesOnline = lane.vehiclesOnline || 0; // actual count
+        const vehicleSpacing = ('vehicleSpacing' in lane ? lane.vehicleSpacing : undefined) || 5; // actual spacing
+        const vehiclesOnline = ('vehiclesOnline' in lane ? lane.vehiclesOnline : undefined) || 0; // actual count
 
         if (speed > 10 && vehicleSpacing > 0) {
           // MOVING LANE: Use actual measured throughput

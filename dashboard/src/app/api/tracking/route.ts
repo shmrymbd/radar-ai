@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
       deviceId: objectData[0].deviceId,
       timestamp: typeof objectData[0].timestamp === 'string' 
         ? objectData[0].timestamp 
-        : (objectData[0].timestamp instanceof Date ? objectData[0].timestamp.toISOString() : new Date().toISOString()),
+        : (objectData[0].timestamp && typeof objectData[0].timestamp === 'object' && 'toISOString' in objectData[0].timestamp ? (objectData[0].timestamp as Date).toISOString() : new Date().toISOString()),
       numEntries: objectData[0].numEntries,
       entries: objectData[0].entries.map(entry => ({
         targetId: entry.targetId,
