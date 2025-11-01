@@ -10,14 +10,17 @@ import { createLogger } from '../utils/logger';
 
 const logger = createLogger('redis');
 
-let redisClient: RedisClientType | null = null;
-let connectionPromise: Promise<RedisClientType> | null = null;
+// Use ReturnType to get the actual inferred type from createClient
+type RedisClient = ReturnType<typeof createClient>;
+
+let redisClient: RedisClient | null = null;
+let connectionPromise: Promise<RedisClient> | null = null;
 
 /**
  * Get or create Redis client instance
  * Uses singleton pattern to ensure single connection
  */
-export async function getRedisClient(): Promise<RedisClientType> {
+export async function getRedisClient(): Promise<RedisClient> {
   // If already connected, return immediately
   if (redisClient && redisClient.isOpen) {
     return redisClient;
