@@ -276,10 +276,11 @@ const fetchData = useCallback(async () => {
    - Uses `trailUpdateQueue` and `trailBatchTimer` refs
    - Lines 52-53, 62-81, 1305-1314 in LiveTracking.tsx
 
-3. **Lane Boundary Extraction Memoization** (15% → ~0.1% CPU)
-   - Only recalculates when trail data grows by 20%+
-   - Two-stage `useMemo` with `laneBoundaryMemoKey` dependency
-   - Lines 54, 599-674 in LiveTracking.tsx
+3. **Lane Boundary Background Calculation** (15% → ~0.1% CPU)
+   - Runs independently from render cycle using `useEffect` + state
+   - Only recalculates when trail data grows by 50+ points (absolute threshold)
+   - Decoupled from render pipeline for smoother performance
+   - Lines 54, 57, 601-669 in LiveTracking.tsx
 
 4. **Curve Calculation Caching** (10% → ~0.1% CPU)
    - Pre-computes all lane separator curves when boundaries change
@@ -297,10 +298,11 @@ const fetchData = useCallback(async () => {
    - Lines 1249-1253 in LiveTracking.tsx
 
 **Implementation Notes:**
-- All optimizations use React hooks: `useMemo`, `useRef`, `useCallback`
-- `extractLaneBoundaries` is now a memoized value (array), not a function
+- All optimizations use React hooks: `useState`, `useEffect`, `useMemo`, `useRef`, `useCallback`
+- Lane boundaries use background `useEffect` calculation → `laneBoundaries` state (decoupled from render)
 - Heat map and trail batching use time-based throttling with refs
-- Curve cache depends on `laneBoundaryMemoKey` for efficient invalidation
+- Curve cache depends on `laneBoundaries` state for automatic invalidation
+- Absolute threshold (50 points) prevents road blinking issue from percentage-based scaling
 
 ## Common Gotchas
 
