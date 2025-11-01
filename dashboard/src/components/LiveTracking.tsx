@@ -595,18 +595,18 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     ctx.globalAlpha = 1; // Reset global alpha
   }, [radarToVisual, interpolateTrailPoints]); // Removed renderOptions - uses ref
 
-  // Compute memoization key that only changes when trail data grows by 20%+
+  // Compute memoization key that only changes when trail data grows by 50+ points
   const laneBoundaryMemoKey = useMemo(() => {
     const currentSize = globalTrailHistory.size;
     const lastSize = lastLaneBoundarySize.current;
-    const GROWTH_THRESHOLD = 0.20; // 20% growth required for recalculation
+    const GROWTH_THRESHOLD = 50; // Absolute count - recalculate every 50 new trail points
 
-    // Check if recalculation is needed (20% growth or first run)
+    // Check if recalculation is needed (50+ new points or first run)
     const shouldRecalculate = lastSize === 0 ||
-                              (currentSize - lastSize) / lastSize >= GROWTH_THRESHOLD;
+                              (currentSize - lastSize) >= GROWTH_THRESHOLD;
 
     if (shouldRecalculate) {
-      console.log(`[LaneBoundary] Triggering recalc - size grew from ${lastSize} to ${currentSize} (${((currentSize - lastSize) / (lastSize || 1) * 100).toFixed(1)}%)`);
+      console.log(`[LaneBoundary] Triggering recalc - size grew from ${lastSize} to ${currentSize} (+${currentSize - lastSize} points, threshold: ${GROWTH_THRESHOLD})`);
       lastLaneBoundarySize.current = currentSize;
       return currentSize; // Return new value to trigger extractLaneBoundaries recalc
     }
@@ -616,7 +616,7 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
   }, [globalTrailHistory]);
 
   // Extract lane boundaries from trail points using density analysis
-  // Memoized with 20% threshold to reduce CPU from sorting/filtering (10Hz -> ~0.1Hz)
+  // Memoized with 50-point threshold to reduce CPU from sorting/filtering (10Hz -> ~0.1Hz)
   const extractLaneBoundaries = useMemo(() => {
     if (globalTrailHistory.size < 20) return []; // Need at least 20 data points
 
