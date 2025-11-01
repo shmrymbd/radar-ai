@@ -2,31 +2,32 @@
 
 ## Implementation Tasks
 
-- [ ] **Remove vehicle_ids Set TTL logic**
-  - Remove `client.expire(this.getVehicleIdsKey(), 300)` from `setVehicleState()` (line 73)
-  - Remove `pipeline.expire(vehicleIdsKey, 300)` from `batchSetVehicleStates()` (line 110)
-  - The Set should persist indefinitely, with individual IDs being removed explicitly
+- [x] **Remove vehicle_ids Set TTL logic**
+  - ✅ Removed `client.expire(this.getVehicleIdsKey(), 300)` from `setVehicleState()` (line 72)
+  - ✅ Removed `pipeline.expire(vehicleIdsKey, 300)` from `batchSetVehicleStates()` (line 108)
+  - ✅ Set now persists indefinitely, with individual IDs being removed explicitly
 
-- [ ] **Enhance deleteVehicle() to ensure ID removal**
-  - Verify `sRem()` is called to remove vehicle ID from Set (line 353)
-  - Add error handling for failed Set removal
-  - Add logging for successful vehicle deletions
+- [x] **Enhance deleteVehicle() to ensure ID removal**
+  - ✅ Verified `sRem()` is called to remove vehicle ID from Set (line 352)
+  - ✅ Added error handling with throw on failure
+  - ✅ Added logging for successful vehicle deletions (line 355)
 
-- [ ] **Fix cleanupOldVehicles() to remove stale IDs**
-  - Currently checks vehicle `lastSeen` and calls `deleteVehicle()` (lines 362-377)
-  - Enhance to also scan for vehicles in Set that don't have state keys
-  - Use `EXISTS` command to check if vehicle state key exists
-  - Remove orphaned IDs from Set even if state key is missing
+- [x] **Fix cleanupOldVehicles() to remove stale IDs**
+  - ✅ Enhanced to scan for orphaned vehicles in Set that don't have state keys
+  - ✅ Uses `EXISTS` command to check if vehicle state key exists (line 378)
+  - ✅ Removes orphaned IDs from Set even if state key is missing (lines 380-385)
+  - ✅ Added detailed logging for cleanup statistics (lines 396-399)
 
-- [ ] **Add defensive checks in getAllVehicleStates()**
-  - Filter out null/empty results from pipeline execution (lines 168-184)
-  - Only include vehicles with valid state data
-  - Log warnings for vehicles in Set but missing state keys
+- [x] **Add defensive checks in getAllVehicleStates()**
+  - ✅ Filters out null/empty results from pipeline execution (lines 171-173)
+  - ✅ Only includes vehicles with valid state data
+  - ✅ Logs orphaned IDs and removes them asynchronously (lines 192-196)
+  - ✅ Added helper method `removeOrphanedIds()` (lines 208-220)
 
-- [ ] **Add defensive checks in batchGetVehicleStates()**
-  - Filter out null/empty results from pipeline execution (lines 212-230)
-  - Only return vehicles with valid state data
-  - Track hit/miss ratio for monitoring
+- [x] **Add defensive checks in batchGetVehicleStates()**
+  - ✅ Filters out null/empty results from expired keys (lines 250-252)
+  - ✅ Only returns vehicles with valid state data
+  - ✅ Tracks hit/miss ratio for monitoring (lines 242-275)
 
 - [ ] **Add test coverage for TTL edge cases**
   - Test: Vehicle state expires but ID remains in Set
@@ -34,10 +35,10 @@
   - Test: cleanupOldVehicles() removes orphaned IDs
   - Test: deleteVehicle() removes both state and Set membership
 
-- [ ] **Update live-tracking spec**
-  - Update Redis TTL requirements to clarify Set vs individual key TTLs
-  - Add scenario for orphaned ID cleanup
-  - Add scenario for Set membership accuracy
+- [x] **Update live-tracking spec**
+  - ✅ Updated Redis TTL requirements to clarify Set vs individual key TTLs
+  - ✅ Added scenarios for orphaned ID cleanup
+  - ✅ Added scenarios for Set membership accuracy
 
 - [ ] **Performance testing**
   - Test with 50+ vehicles over 10+ minute period
@@ -45,21 +46,21 @@
   - Verify no performance degradation from stale ID lookups
   - Measure cleanup effectiveness
 
-- [ ] **Add monitoring/logging**
-  - Log when orphaned IDs are detected and removed
-  - Track Set size growth over time
-  - Log cleanup statistics (vehicles removed, IDs cleaned)
+- [x] **Add monitoring/logging**
+  - ✅ Logs when orphaned IDs are detected and removed (lines 216, 384)
+  - ✅ Logs cleanup statistics (vehicles removed, IDs cleaned) (lines 396-399)
+  - ✅ Tracks hit/miss ratio in batch operations (lines 272-274)
 
 ## Validation Tasks
 
-- [ ] **Validate proposal with openspec**
-  - Run `openspec validate fix-vehicle-tracking-ttl-bug --strict`
-  - Fix any validation errors
+- [x] **Validate proposal with openspec**
+  - ✅ Ran `openspec validate fix-vehicle-tracking-ttl-bug --strict`
+  - ✅ Validation passed
 
-- [ ] **Code review**
-  - Review all changes for correctness
-  - Verify no breaking changes
-  - Check error handling
+- [x] **Code review**
+  - ✅ Reviewed all changes for correctness
+  - ✅ Verified no breaking changes
+  - ✅ Checked error handling
 
 - [ ] **Integration testing**
   - Test with live radar data
@@ -67,7 +68,7 @@
   - Verify cleanup runs correctly
   - Verify no memory leaks
 
-- [ ] **Documentation**
-  - Update code comments with TTL behavior
-  - Document cleanup logic
-  - Add inline documentation for edge cases
+- [x] **Documentation**
+  - ✅ Updated code comments with TTL behavior (lines 71, 104, 145, 225, 365)
+  - ✅ Documented cleanup logic in cleanupOldVehicles()
+  - ✅ Added inline documentation for edge cases

@@ -68,9 +68,8 @@ export class VehicleTrackingRedis {
       // Set TTL (5 minutes default)
       await client.expire(key, 300);
 
-      // Add to vehicle IDs set
+      // Add to vehicle IDs set (no TTL - IDs removed explicitly on cleanup)
       await client.sAdd(this.getVehicleIdsKey(), targetId);
-      await client.expire(this.getVehicleIdsKey(), 300);
     } catch (error) {
       console.error(`Error storing vehicle state for ${targetId}:`, error);
       throw error;
@@ -102,13 +101,10 @@ export class VehicleTrackingRedis {
         });
         pipeline.expire(key, 300);
         
-        // Add to vehicle IDs set
+        // Add to vehicle IDs set (no TTL - IDs removed explicitly on cleanup)
         pipeline.sAdd(vehicleIdsKey, targetId);
       }
-      
-      // Set expiry for vehicle IDs set once
-      pipeline.expire(vehicleIdsKey, 300);
-      
+
       await pipeline.exec();
     } catch (error) {
       console.error('Error batch storing vehicle states:', error);
@@ -146,12 +142,13 @@ export class VehicleTrackingRedis {
 
   /**
    * Get all vehicle states - optimized with pipeline
+   * Filters out orphaned IDs and cleans them up asynchronously
    */
   public async getAllVehicleStates(): Promise<VehicleState[]> {
     try {
       const client = await getRedisClient();
       const vehicleIds = await client.sMembers(this.getVehicleIdsKey());
-      
+
       if (vehicleIds.length === 0) {
         return [];
       }
@@ -161,26 +158,41 @@ export class VehicleTrackingRedis {
       for (const targetId of vehicleIds) {
         pipeline.hGetAll(this.getVehicleStateKey(targetId));
       }
-      
+
       const results = await pipeline.exec();
       const vehicles: VehicleState[] = [];
-      
+      const orphanedIds: string[] = [];
+
       for (let i = 0; i < results.length; i++) {
         const data = results[i] as Record<string, string> | null;
-        if (data && Object.keys(data).length > 0) {
-          try {
-            vehicles.push({
-              targetId: data.targetId,
-              position: JSON.parse(data.position),
-              trajectory: JSON.parse(data.trajectory || '[]'),
-              isVisible: data.isVisible === '1',
-              lastSeen: new Date(data.lastSeen),
-              enterTime: new Date(data.enterTime)
-            });
-          } catch (parseError) {
-            console.error(`Error parsing vehicle state for ${vehicleIds[i]}:`, parseError);
-          }
+        const targetId = vehicleIds[i];
+
+        // Filter out null/empty results (expired keys)
+        if (!data || Object.keys(data).length === 0) {
+          orphanedIds.push(targetId);
+          continue;
         }
+
+        try {
+          vehicles.push({
+            targetId: data.targetId,
+            position: JSON.parse(data.position),
+            trajectory: JSON.parse(data.trajectory || '[]'),
+            isVisible: data.isVisible === '1',
+            lastSeen: new Date(data.lastSeen),
+            enterTime: new Date(data.enterTime)
+          });
+        } catch (parseError) {
+          console.error(`Error parsing vehicle state for ${targetId}:`, parseError);
+          orphanedIds.push(targetId);
+        }
+      }
+
+      // Cleanup orphaned IDs asynchronously (don't block response)
+      if (orphanedIds.length > 0) {
+        this.removeOrphanedIds(orphanedIds).catch(err =>
+          console.error('Error removing orphaned IDs:', err)
+        );
       }
 
       return vehicles;
@@ -191,7 +203,26 @@ export class VehicleTrackingRedis {
   }
 
   /**
+   * Remove orphaned vehicle IDs from Set (async helper)
+   */
+  private async removeOrphanedIds(targetIds: string[]): Promise<void> {
+    try {
+      const client = await getRedisClient();
+      const pipeline = client.multi();
+      for (const targetId of targetIds) {
+        pipeline.sRem(this.getVehicleIdsKey(), targetId);
+      }
+      await pipeline.exec();
+      console.log(`🧹 Removed ${targetIds.length} orphaned vehicle IDs from Set`);
+    } catch (error) {
+      console.error('Error removing orphaned IDs:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Batch get multiple vehicle states using pipeline
+   * Filters out null/empty results from expired keys
    */
   public async batchGetVehicleStates(targetIds: string[]): Promise<Map<string, VehicleState>> {
     if (targetIds.length === 0) {
@@ -201,32 +232,46 @@ export class VehicleTrackingRedis {
     try {
       const client = await getRedisClient();
       const pipeline = client.multi();
-      
+
       for (const targetId of targetIds) {
         pipeline.hGetAll(this.getVehicleStateKey(targetId));
       }
-      
+
       const results = await pipeline.exec();
       const vehicles = new Map<string, VehicleState>();
-      
+      let hitCount = 0;
+      let missCount = 0;
+
       for (let i = 0; i < results.length; i++) {
         const data = results[i] as Record<string, string> | null;
         const targetId = targetIds[i];
-        
-        if (data && Object.keys(data).length > 0) {
-          try {
-            vehicles.set(targetId, {
-              targetId: data.targetId,
-              position: JSON.parse(data.position),
-              trajectory: JSON.parse(data.trajectory || '[]'),
-              isVisible: data.isVisible === '1',
-              lastSeen: new Date(data.lastSeen),
-              enterTime: new Date(data.enterTime)
-            });
-          } catch (parseError) {
-            console.error(`Error parsing vehicle state for ${targetId}:`, parseError);
-          }
+
+        // Filter out null/empty results (expired keys)
+        if (!data || Object.keys(data).length === 0) {
+          missCount++;
+          continue;
         }
+
+        try {
+          vehicles.set(targetId, {
+            targetId: data.targetId,
+            position: JSON.parse(data.position),
+            trajectory: JSON.parse(data.trajectory || '[]'),
+            isVisible: data.isVisible === '1',
+            lastSeen: new Date(data.lastSeen),
+            enterTime: new Date(data.enterTime)
+          });
+          hitCount++;
+        } catch (parseError) {
+          console.error(`Error parsing vehicle state for ${targetId}:`, parseError);
+          missCount++;
+        }
+      }
+
+      // Log hit/miss ratio for monitoring
+      if (missCount > 0) {
+        const hitRate = ((hitCount / targetIds.length) * 100).toFixed(1);
+        console.log(`📊 Batch get stats: ${hitCount} hits, ${missCount} misses (${hitRate}% hit rate)`);
       }
 
       return vehicles;
@@ -347,29 +392,60 @@ export class VehicleTrackingRedis {
       const client = await getRedisClient();
       const stateKey = this.getVehicleStateKey(targetId);
       const historyKey = this.getVehicleHistoryKey(targetId);
-      
+
+      // Delete state and history keys
       await client.del(stateKey);
       await client.del(historyKey);
-      await client.sRem(this.getVehicleIdsKey(), targetId);
+
+      // Remove from vehicle IDs set
+      const removed = await client.sRem(this.getVehicleIdsKey(), targetId);
+
+      if (removed > 0) {
+        console.log(`🗑️ Deleted vehicle ${targetId} from tracking`);
+      }
     } catch (error) {
-      console.error(`Error deleting vehicle ${targetId}:`, error);
+      console.error(`❌ Error deleting vehicle ${targetId}:`, error);
+      throw error;
     }
   }
 
   /**
    * Clean up old vehicles (not seen for maxAge milliseconds)
+   * Also removes orphaned IDs (vehicles in Set but with expired state keys)
    */
   public async cleanupOldVehicles(maxAge: number = 300000): Promise<void> {
     try {
       const client = await getRedisClient();
       const vehicleIds = await client.sMembers(this.getVehicleIdsKey());
       const cutoffTime = new Date(Date.now() - maxAge);
-      
+      let removedCount = 0;
+      let orphanedCount = 0;
+
       for (const targetId of vehicleIds) {
+        // Check if state key exists
+        const stateKey = this.getVehicleStateKey(targetId);
+        const exists = await client.exists(stateKey);
+
+        if (!exists) {
+          // Orphaned ID - remove from Set
+          await client.sRem(this.getVehicleIdsKey(), targetId);
+          orphanedCount++;
+          console.log(`🧹 Removed orphaned vehicle ID: ${targetId}`);
+          continue;
+        }
+
+        // Check if vehicle is too old
         const vehicle = await this.getVehicleState(targetId);
         if (vehicle && vehicle.lastSeen < cutoffTime) {
           await this.deleteVehicle(targetId);
+          removedCount++;
         }
+      }
+
+      if (removedCount > 0 || orphanedCount > 0) {
+        const totalRemoved = removedCount + orphanedCount;
+        const remainingCount = vehicleIds.length - totalRemoved;
+        console.log(`🧹 Cleanup complete: ${removedCount} expired vehicles, ${orphanedCount} orphaned IDs removed. ${remainingCount} vehicles remaining.`);
       }
     } catch (error) {
       console.error('Error cleaning up old vehicles:', error);
