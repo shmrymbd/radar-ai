@@ -59,23 +59,26 @@
   - ✅ types/tracking.ts → server/src/types/tracking.ts
   - ✅ types/classification.ts → server/src/types/classification.ts
 
-## Phase 4: Extract WebSocket Servers
+## Phase 4: Extract WebSocket Servers ✅ COMPLETE
 
-- [ ] **Create WebSocket server structure**
-  - Create server/src/websocket/server.ts (main server)
-  - Create server/src/websocket/handlers/ directory
-  - Create server/src/websocket/middleware/ directory
+- [x] **Create WebSocket server structure**
+  - ✅ server/src/websocket/server.ts (main server with clean architecture)
+  - ✅ server/src/websocket/handlers/ directory
+  - ✅ server/src/websocket/middleware/ directory
+  - ✅ server/src/index.ts (server entry point)
 
-- [ ] **Move WebSocket handlers**
-  - Copy unified-websocket-server.ts → server/src/websocket/server.ts
-  - Extract tracking logic → server/src/websocket/handlers/tracking.ts
-  - Extract classification logic → server/src/websocket/handlers/classification.ts
-  - Refactor for clean separation
+- [x] **Move WebSocket handlers**
+  - ✅ unified-websocket-server.ts → server/src/websocket/server.ts (refactored)
+  - ✅ Extracted tracking logic → server/src/websocket/handlers/tracking.ts
+  - ✅ Extracted classification logic → server/src/websocket/handlers/classification.ts
+  - ✅ Extracted dashboard logic → server/src/websocket/handlers/dashboard.ts
+  - ✅ Clean separation with dependency injection and callbacks
 
-- [ ] **Add WebSocket middleware**
-  - Create rate limiting middleware
-  - Create error handling middleware
-  - Create logging middleware
+- [x] **Add WebSocket middleware**
+  - ✅ Rate limiting middleware (100 messages/minute per client)
+  - ✅ Error handling middleware (centralized error responses)
+  - ✅ Message validation with Zod schemas (server/src/websocket/message-schemas.ts)
+  - ✅ Logging integrated via Winston in all components
 
 ## Phase 5: Fix Imports and Build
 
