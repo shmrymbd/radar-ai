@@ -472,11 +472,21 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
     
     if (smoothness === 0) return points; // No interpolation
     
+    // Normalize all timestamps to Date objects
+    const normalizedPoints = points.map(p => ({
+      ...p,
+      timestamp: p.timestamp instanceof Date ? p.timestamp : new Date(p.timestamp || Date.now())
+    }));
+    
     const interpolatedPoints: VehiclePosition[] = [];
     
-    for (let i = 0; i < points.length - 1; i++) {
-      const current = points[i];
-      const next = points[i + 1];
+    for (let i = 0; i < normalizedPoints.length - 1; i++) {
+      const current = normalizedPoints[i];
+      const next = normalizedPoints[i + 1];
+      
+      // Ensure timestamps are Date objects before calling getTime()
+      const currentTime = current.timestamp instanceof Date ? current.timestamp.getTime() : new Date(current.timestamp).getTime();
+      const nextTime = next.timestamp instanceof Date ? next.timestamp.getTime() : new Date(next.timestamp).getTime();
       
       // Add current point
       interpolatedPoints.push(current);
@@ -489,14 +499,14 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
           ...current,
           x: current.x + (next.x - current.x) * ratio,
           y: current.y + (next.y - current.y) * ratio,
-          timestamp: new Date(current.timestamp.getTime() + (next.timestamp.getTime() - current.timestamp.getTime()) * ratio)
+          timestamp: new Date(currentTime + (nextTime - currentTime) * ratio)
         };
         interpolatedPoints.push(interpolatedPoint);
       }
     }
     
     // Add the last point
-    interpolatedPoints.push(points[points.length - 1]);
+    interpolatedPoints.push(normalizedPoints[normalizedPoints.length - 1]);
     
     return interpolatedPoints;
   }, [renderOptions]);
@@ -1070,10 +1080,19 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
             acceleration: 0
           };
 
+          // Ensure trajectory positions have Date objects for timestamps
+          const trajectory = (vehicle.trajectory || [position]).map((pos: any) => ({
+            ...pos,
+            timestamp: pos.timestamp instanceof Date ? pos.timestamp : new Date(pos.timestamp || Date.now())
+          }));
+
           return {
             targetId: vehicle.targetId,
-            position,
-            trajectory: vehicle.trajectory || [position],
+            position: {
+              ...position,
+              timestamp: position.timestamp instanceof Date ? position.timestamp : new Date(position.timestamp || Date.now())
+            },
+            trajectory,
             isVisible: vehicle.isVisible !== false,
             lastSeen: new Date(vehicle.lastSeen || Date.now()),
             enterTime: new Date(vehicle.enterTime || Date.now())
@@ -1135,6 +1154,11 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
               const updatedVehicles = incomingVehicles.map((vehicle: VehiclePosition) => {
                 const existingVehicle = prevVehicles.find(v => v.targetId === vehicle.targetId);
 
+                // Ensure timestamp is a Date object
+                const vehicleTimestamp = vehicle.timestamp 
+                  ? (vehicle.timestamp instanceof Date ? vehicle.timestamp : new Date(vehicle.timestamp))
+                  : new Date();
+                
                 const newPosition: VehiclePosition = {
                   targetId: vehicle.targetId,
                   x: vehicle.x,
@@ -1145,7 +1169,7 @@ export default function LiveTracking({ className = '', hideRadarCard = false }: 
                   speed: vehicle.speed,
                   vehicleType: vehicle.vehicleType,
                   laneNo: vehicle.laneNo,
-                  timestamp: new Date(),
+                  timestamp: vehicleTimestamp,
                   xSpeed: vehicle.xSpeed || 0,
                   ySpeed: vehicle.ySpeed || 0,
                   acceleration: vehicle.acceleration || 0
